@@ -43,6 +43,7 @@ const ExpenseForm = () => {
   const [transfers, setTransfers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [pendingFiles, setPendingFiles] = useState([]);
   const [errors, setErrors] = useState({});
 
   const [formData, setFormData] = useState({
@@ -67,6 +68,17 @@ const ExpenseForm = () => {
   useEffect(() => {
     fetchInitialData();
   }, [id]);
+
+  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach(file => {
+        if (file.preview) {
+          URL.revokeObjectURL(file.preview);
+        }
+      });
+    };
+  }, [pendingFiles]);
 
   const fetchInitialData = async () => {
     try {
@@ -213,8 +225,12 @@ const ExpenseForm = () => {
     if (!formData.hak_edis_policy) newErrors.hak_edis_policy = 'Hak ediş politikası zorunludur';
 
     // Check document requirement
-    if (docRequired?.required && documents.length === 0 && !isEditing) {
-      newErrors.documents = docRequired.reason;
+    if (docRequired?.required) {
+      if (isEditing && documents.length === 0) {
+        newErrors.documents = docRequired.reason;
+      } else if (!isEditing && pendingFiles.length === 0 && documents.length === 0) {
+        newErrors.documents = docRequired.reason;
+      }
     }
 
     setErrors(newErrors);
@@ -237,10 +253,18 @@ const ExpenseForm = () => {
         category_id: formData.category_id || null,
       };
 
+      let expenseId;
       if (isEditing) {
         await expensesAPI.update(id, payload);
+        expenseId = id;
       } else {
-        await expensesAPI.create(payload);
+        const response = await expensesAPI.create(payload);
+        expenseId = response.data.data.expense.expense_id;
+      }
+
+      // Upload pending files after expense is created/updated
+      if (pendingFiles.length > 0) {
+        await handleFileUpload(expenseId);
       }
 
       navigate('/expenses');
@@ -268,7 +292,62 @@ const ExpenseForm = () => {
     }
   };
 
-  const handleFileUpload = async (e) => {
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    const newFiles = files.map(file => ({
+      file,
+      id: Date.now() + Math.random(),
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+    }));
+
+    setPendingFiles(prev => [...prev, ...newFiles]);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleRemovePendingFile = (fileId) => {
+    setPendingFiles(prev => {
+      const file = prev.find(f => f.id === fileId);
+      if (file?.preview) {
+        URL.revokeObjectURL(file.preview);
+      }
+      return prev.filter(f => f.id !== fileId);
+    });
+  };
+
+  const handleFileUpload = async (expenseId) => {
+    if (pendingFiles.length === 0) return;
+
+    const uploadPromises = pendingFiles.map(async (pendingFile) => {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', pendingFile.file);
+      formDataUpload.append('expense_id', expenseId);
+      formDataUpload.append('document_type', 'INVOICE');
+
+      try {
+        const response = await documentsAPI.upload(formDataUpload);
+        return response.data.data.document;
+      } catch (error) {
+        console.error('Upload failed:', error);
+        throw error;
+      }
+    });
+
+    try {
+      const uploadedDocs = await Promise.all(uploadPromises);
+      setDocuments(prev => [...prev, ...uploadedDocs]);
+      setPendingFiles([]);
+    } catch (error) {
+      console.error('Some uploads failed:', error);
+      setErrors({ submit: 'Bazı belgeler yüklenemedi' });
+    }
+  };
+
+  const handleFileUploadEdit = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -282,6 +361,7 @@ const ExpenseForm = () => {
       setDocuments(prev => [...prev, response.data.data.document]);
     } catch (error) {
       console.error('Upload failed:', error);
+      setErrors({ submit: 'Belge yüklenemedi' });
     }
   };
 
@@ -552,49 +632,95 @@ const ExpenseForm = () => {
           </div>
         )}
 
-        {/* Documents Section (for editing) */}
-        {isEditing && (
-          <div className="card">
-            <h3 className="font-semibold text-text mb-4">Belgeler</h3>
-            
-            {documents.length > 0 ? (
-              <div className="space-y-2 mb-4">
-                {documents.map(doc => (
-                  <div key={doc.document_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-text-secondary" />
-                      <div>
-                        <p className="font-medium text-sm">{doc.file_name}</p>
-                        <p className="text-xs text-text-muted">{doc.document_type}</p>
+        {/* Documents Section */}
+        <div className="card">
+          <h3 className="font-semibold text-text mb-4">Fatura/Fiş Belgeleri</h3>
+          
+          {/* Pending Files (for new expenses) */}
+          {!isEditing && pendingFiles.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm text-text-secondary mb-2">Yüklenecek belgeler:</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pendingFiles.map(pendingFile => (
+                  <div key={pendingFile.id} className="border rounded-lg p-3 bg-gray-50 relative">
+                    {pendingFile.preview ? (
+                      <div className="mb-2">
+                        <img 
+                          src={pendingFile.preview} 
+                          alt={pendingFile.name}
+                          className="w-full h-32 object-cover rounded"
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <FileText className="w-8 h-8 text-text-secondary mb-2" />
+                    )}
+                    <p className="text-sm font-medium truncate">{pendingFile.name}</p>
+                    <p className="text-xs text-text-muted">
+                      {(pendingFile.size / 1024).toFixed(1)} KB
+                    </p>
                     <button
                       type="button"
-                      onClick={() => documentsAPI.delete(doc.document_id)}
-                      className="p-2 text-danger hover:bg-danger-50 rounded-lg"
+                      onClick={() => handleRemovePendingFile(pendingFile.id)}
+                      className="absolute top-2 right-2 p-1 text-danger hover:bg-danger-50 rounded"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-text-muted text-sm mb-4">Henüz belge yüklenmemiş</p>
-            )}
+            </div>
+          )}
 
-            <label className="btn-outline cursor-pointer">
-              <Upload className="w-4 h-4 mr-2" />
-              Belge Yükle
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                onChange={handleFileUpload}
-              />
-            </label>
-            {errors.documents && <p className="text-sm text-danger mt-2">{errors.documents}</p>}
-          </div>
-        )}
+          {/* Existing Documents (for editing) */}
+          {isEditing && documents.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {documents.map(doc => (
+                <div key={doc.document_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-text-secondary" />
+                    <div>
+                      <p className="font-medium text-sm">{doc.file_name}</p>
+                      <p className="text-xs text-text-muted">{doc.document_type}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await documentsAPI.delete(doc.document_id);
+                        setDocuments(prev => prev.filter(d => d.document_id !== doc.document_id));
+                      } catch (error) {
+                        console.error('Delete failed:', error);
+                      }
+                    }}
+                    className="p-2 text-danger hover:bg-danger-50 rounded-lg"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Upload Button */}
+          <label className="btn-outline cursor-pointer inline-flex items-center">
+            <Upload className="w-4 h-4 mr-2" />
+            {isEditing ? 'Belge Yükle' : 'Fatura/Fiş Ekle'}
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+              multiple={!isEditing}
+              onChange={isEditing ? handleFileUploadEdit : handleFileSelect}
+            />
+          </label>
+          {errors.documents && <p className="text-sm text-danger mt-2">{errors.documents}</p>}
+          {!isEditing && pendingFiles.length === 0 && documents.length === 0 && (
+            <p className="text-text-muted text-sm mt-2">
+              Fatura veya fiş görseli/belgesi yükleyebilirsiniz (PDF, resim, Word, Excel)
+            </p>
+          )}
+        </div>
 
         {/* Error Message */}
         {errors.submit && (
