@@ -1,0 +1,14 @@
+
+function calculateHakEdis(expense):
+  if expense.work_scope_level in ['NON_IMALAT','PURE_MALZEME']:
+    return 0
+
+  if expense.work_scope_level == 'PURE_IMALAT':
+    return expense.amount * 0.07
+
+  if expense.work_scope_level == 'MALZEME_PLUS_IMALAT':
+    if expense.hak_edis_policy == 'ALWAYS_INCLUDED':
+      return expense.amount * 0.07
+    if expense.hak_edis_policy == 'CONDITIONAL':
+      return ownerOverride(expense)
+    return 0

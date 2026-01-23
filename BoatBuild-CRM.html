@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoatBuild CRM - Finansal Yönetim Sistemi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .money { font-variant-numeric: tabular-nums; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { DEFAULT: '#0A2540', 50: '#E8EDF3', 100: '#C5D1E0', 700: '#1E466C', 800: '#133354' },
+                        secondary: { DEFAULT: '#00B4D8', 50: '#E0F7FC' },
+                        success: { DEFAULT: '#2ECC71', 50: '#E9FAF0', 600: '#27AE60' },
+                        warning: { DEFAULT: '#F1C40F', 50: '#FDF9E6', 600: '#D4AC0D' },
+                        danger: { DEFAULT: '#E74C3C', 50: '#FDEDEB', 600: '#CB4335' },
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app"></div>
+
+    <script>
+    // =============================================
+    // DATABASE (LocalStorage)
+    // =============================================
+    const DB = {
+        get(key) {
+            const data = localStorage.getItem(`boatbuild_${key}`);
+            return data ? JSON.parse(data) : null;
+        },
+        set(key, value) {
+            localStorage.setItem(`boatbuild_${key}`, JSON.stringify(value));
+        },
+        init() {
+            if (!this.get('initialized')) {
+                this.set('users', [
+                    { id: '1', email: 'owner@boatbuild.com', password: 'owner123', name: 'Sahip', role: 'OWNER' },
+                    { id: '2', email: 'kaan@boatbuild.com', password: 'operation123', name: 'Kaan (Operasyon)', role: 'OPERATION' }
+                ]);
+                this.set('expenses', []);
+                this.set('transfers', []);
+                this.set('overrides', []);
+                this.set('vendors', [
+                    { id: '1', name: 'BARAN', requires_docs: true },
+                    { id: '2', name: 'MOTOR', requires_docs: true },
+                    { id: '3', name: 'ETKIN', requires_docs: true },
+                    { id: '4', name: 'Genel Tedarikçi', requires_docs: false }
+                ]);
+                this.set('categories', [
+                    { id: '1', name: 'Kaynak İşçiliği', tag: 'KAYNAK', scope: 'PURE_IMALAT', policy: 'ALWAYS_INCLUDED' },
+                    { id: '2', name: 'Montaj İşçiliği', tag: 'MONTAJ', scope: 'PURE_IMALAT', policy: 'ALWAYS_INCLUDED' },
+                    { id: '3', name: 'Tesisat İşçiliği', tag: 'TESISAT', scope: 'PURE_IMALAT', policy: 'ALWAYS_INCLUDED' },
+                    { id: '4', name: 'Elektrik İşçiliği', tag: 'ELEKTRIK', scope: 'PURE_IMALAT', policy: 'ALWAYS_INCLUDED' },
+                    { id: '5', name: 'Cam + Montaj', tag: 'CAM', scope: 'MALZEME_PLUS_IMALAT', policy: 'CONDITIONAL' },
+                    { id: '6', name: 'Parke + Döşeme', tag: 'PARKE', scope: 'MALZEME_PLUS_IMALAT', policy: 'CONDITIONAL' },
+                    { id: '7', name: 'Boya + Uygulama', tag: 'BOYA', scope: 'MALZEME_PLUS_IMALAT', policy: 'CONDITIONAL' },
+                    { id: '8', name: 'Mobilya + Montaj', tag: 'MOBILYA', scope: 'MALZEME_PLUS_IMALAT', policy: 'CONDITIONAL' },
+                    { id: '9', name: 'Ham Malzeme', tag: 'MALZEME', scope: 'PURE_MALZEME', policy: 'ALWAYS_EXCLUDED' },
+                    { id: '10', name: 'Motor', tag: 'MOTOR', scope: 'PURE_MALZEME', policy: 'ALWAYS_EXCLUDED' },
+                    { id: '11', name: 'Reklam Gideri', tag: 'REKLAM', scope: 'NON_IMALAT', policy: 'ALWAYS_EXCLUDED' },
+                    { id: '12', name: 'İdari Gider', tag: 'IDARI', scope: 'NON_IMALAT', policy: 'ALWAYS_EXCLUDED' },
+                    { id: '13', name: 'Nakliye', tag: 'NAKLIYE', scope: 'NON_IMALAT', policy: 'ALWAYS_EXCLUDED' }
+                ]);
+                this.set('alerts', []);
+                this.set('initialized', true);
+            }
+        }
+    };
+
+    // =============================================
+    // HAK EDİŞ ENGINE (7% Commission Calculator)
+    // =============================================
+    const HakEdisEngine = {
+        RATE: 0.07,
+        
+        calculate(expense, override = null) {
+            const { amount, work_scope_level, hak_edis_policy } = expense;
+            
+            // NON_IMALAT ve PURE_MALZEME asla uygun değil
+            if (work_scope_level === 'NON_IMALAT' || work_scope_level === 'PURE_MALZEME') {
+                return { eligible: false, amount: 0, reason: 'İş kapsamı uygun değil' };
+            }
+            
+            // PURE_IMALAT her zaman %7
+            if (work_scope_level === 'PURE_IMALAT') {
+                return { eligible: true, amount: this.round(amount * this.RATE), reason: 'Saf imalat - %7' };
+            }
+            
+            // MALZEME_PLUS_IMALAT - politikaya bağlı
+            if (work_scope_level === 'MALZEME_PLUS_IMALAT') {
+                if (hak_edis_policy === 'ALWAYS_INCLUDED') {
+                    return { eligible: true, amount: this.round(amount * this.RATE), reason: 'Politika: Her zaman dahil' };
+                }
+                if (hak_edis_policy === 'ALWAYS_EXCLUDED') {
+                    return { eligible: false, amount: 0, reason: 'Politika: Her zaman hariç' };
+                }
+                if (hak_edis_policy === 'CONDITIONAL') {
+                    // Override kontrolü
+                    if (override && override.status === 'APPROVED') {
+                        return { eligible: true, amount: this.round(amount * this.RATE), reason: 'Sahip onayladı' };
+                    }
+                    return { 
+                        eligible: false, 
+                        amount: 0, 
+                        reason: 'Koşullu - Onay bekliyor',
+                        potential: this.round(amount * this.RATE),
+                        requiresApproval: true
+                    };
+                }
+            }
+            
+            return { eligible: false, amount: 0, reason: 'Bilinmeyen durum' };
+        },
+        
+        round(num) {
+            return Math.round(num * 100) / 100;
+        }
+    };
+
+    // =============================================
+    // APP STATE
+    // =============================================
+    let state = {
+        currentUser: null,
+        currentPage: 'login',
+        expenses: [],
+        transfers: [],
+        overrides: [],
+        vendors: [],
+        categories: [],
+        alerts: []
+    };
+
+    // =============================================
+    // UTILITY FUNCTIONS
+    // =============================================
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(amount || 0);
+    };
+
+    const formatDate = (dateStr) => {
+        return new Date(dateStr).toLocaleDateString('tr-TR');
+    };
+
+    const generateId = () => Math.random().toString(36).substr(2, 9);
+
+    // =============================================
+    // AUTHENTICATION
+    // =============================================
+    const Auth = {
+        login(email, password) {
+            const users = DB.get('users');
+            const user = users.find(u => u.email === email && u.password === password);
+            if (user) {
+                state.currentUser = user;
+                DB.set('currentUser', user);
+                return true;
+            }
+            return false;
+        },
+        logout() {
+            state.currentUser = null;
+            DB.set('currentUser', null);
+            state.currentPage = 'login';
+            render();
+        },
+        isOwner() {
+            return state.currentUser?.role === 'OWNER';
+        }
+    };
+
+    // =============================================
+    // DATA OPERATIONS
+    // =============================================
+    const DataOps = {
+        loadAll() {
+            state.expenses = DB.get('expenses') || [];
+            state.transfers = DB.get('transfers') || [];
+            state.overrides = DB.get('overrides') || [];
+            state.vendors = DB.get('vendors') || [];
+            state.categories = DB.get('categories') || [];
+            state.alerts = DB.get('alerts') || [];
+        },
+        
+        saveExpense(expense) {
+            // Hak ediş hesapla
+            const override = state.overrides.find(o => o.expense_id === expense.id);
+            const hakEdis = HakEdisEngine.calculate(expense, override);
+            expense.is_hak_edis_eligible = hakEdis.eligible;
+            expense.hak_edis_amount = hakEdis.amount;
+            expense.hak_edis_reason = hakEdis.reason;
+            expense.potential_hak_edis = hakEdis.potential || 0;
+            expense.requires_approval = hakEdis.requiresApproval || false;
+            
+            const expenses = DB.get('expenses') || [];
+            const idx = expenses.findIndex(e => e.id === expense.id);
+            if (idx >= 0) {
+                expenses[idx] = expense;
+            } else {
+                expense.id = generateId();
+                expense.created_at = new Date().toISOString();
+                expense.created_by = state.currentUser.id;
+                expenses.push(expense);
+            }
+            DB.set('expenses', expenses);
+            
+            // Alert oluştur
+            if (expense.requires_approval) {
+                this.createAlert('CONDITIONAL_PENDING', `${expense.vendor_name}: ${formatCurrency(expense.potential_hak_edis)} potansiyel hak ediş`, expense.id);
+            }
+            
+            this.loadAll();
+        },
+        
+        saveTransfer(transfer) {
+            const transfers = DB.get('transfers') || [];
+            const idx = transfers.findIndex(t => t.id === transfer.id);
+            if (idx >= 0) {
+                transfers[idx] = transfer;
+            } else {
+                transfer.id = generateId();
+                transfer.status = 'PENDING';
+                transfer.created_at = new Date().toISOString();
+                transfer.created_by = state.currentUser.id;
+                transfers.push(transfer);
+            }
+            DB.set('transfers', transfers);
+            this.loadAll();
+        },
+        
+        approveTransfer(id) {
+            const transfers = DB.get('transfers');
+            const transfer = transfers.find(t => t.id === id);
+            if (transfer) {
+                transfer.status = 'APPROVED';
+                transfer.approved_by = state.currentUser.id;
+                transfer.approved_at = new Date().toISOString();
+                DB.set('transfers', transfers);
+                this.loadAll();
+            }
+        },
+        
+        rejectTransfer(id, reason) {
+            const transfers = DB.get('transfers');
+            const transfer = transfers.find(t => t.id === id);
+            if (transfer) {
+                transfer.status = 'REJECTED';
+                transfer.rejected_reason = reason;
+                transfer.approved_by = state.currentUser.id;
+                transfer.approved_at = new Date().toISOString();
+                DB.set('transfers', transfers);
+                this.loadAll();
+            }
+        },
+        
+        requestOverride(expenseId, reason) {
+            const overrides = DB.get('overrides') || [];
+            const expense = state.expenses.find(e => e.id === expenseId);
+            overrides.push({
+                id: generateId(),
+                expense_id: expenseId,
+                reason: reason,
+                status: 'PENDING',
+                requested_amount: HakEdisEngine.round(expense.amount * HakEdisEngine.RATE),
+                requested_by: state.currentUser.id,
+                requested_at: new Date().toISOString()
+            });
+            DB.set('overrides', overrides);
+            this.loadAll();
+        },
+        
+        approveOverride(id) {
+            const overrides = DB.get('overrides');
+            const override = overrides.find(o => o.id === id);
+            if (override) {
+                override.status = 'APPROVED';
+                override.approved_by = state.currentUser.id;
+                override.approved_at = new Date().toISOString();
+                DB.set('overrides', overrides);
+                
+                // Gideri güncelle
+                const expenses = DB.get('expenses');
+                const expense = expenses.find(e => e.id === override.expense_id);
+                if (expense) {
+                    expense.is_hak_edis_eligible = true;
+                    expense.hak_edis_amount = override.requested_amount;
+                    expense.hak_edis_reason = 'Sahip onayladı';
+                    expense.requires_approval = false;
+                    DB.set('expenses', expenses);
+                }
+                
+                // Alert'i kaldır
+                this.resolveAlert(override.expense_id);
+                this.loadAll();
+            }
+        },
+        
+        rejectOverride(id, reason) {
+            const overrides = DB.get('overrides');
+            const override = overrides.find(o => o.id === id);
+            if (override) {
+                override.status = 'REJECTED';
+                override.rejection_reason = reason;
+                override.approved_by = state.currentUser.id;
+                override.approved_at = new Date().toISOString();
+                DB.set('overrides', overrides);
+                this.resolveAlert(override.expense_id);
+                this.loadAll();
+            }
+        },
+        
+        createAlert(type, message, relatedId) {
+            const alerts = DB.get('alerts') || [];
+            alerts.push({
+                id: generateId(),
+                type: type,
+                message: message,
+                related_id: relatedId,
+                created_at: new Date().toISOString(),
+                resolved: false
+            });
+            DB.set('alerts', alerts);
+        },
+        
+        resolveAlert(relatedId) {
+            const alerts = DB.get('alerts') || [];
+            alerts.forEach(a => {
+                if (a.related_id === relatedId) a.resolved = true;
+            });
+            DB.set('alerts', alerts);
+        },
+        
+        getKPIs() {
+            const expenses = state.expenses;
+            const totalSpend = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+            const paidHakEdis = expenses.filter(e => e.is_hak_edis_eligible).reduce((sum, e) => sum + (parseFloat(e.hak_edis_amount) || 0), 0);
+            const potentialHakEdis = expenses.filter(e => !e.is_hak_edis_eligible && e.potential_hak_edis > 0).reduce((sum, e) => sum + (parseFloat(e.potential_hak_edis) || 0), 0);
+            const conditionalCount = expenses.filter(e => e.requires_approval).length;
+            const pendingTransfers = state.transfers.filter(t => t.status === 'PENDING').length;
+            const pendingOverrides = state.overrides.filter(o => o.status === 'PENDING').length;
+            
+            return { totalSpend, paidHakEdis, potentialHakEdis, conditionalCount, pendingTransfers, pendingOverrides };
+        }
+    };
+
+    // =============================================
+    // RENDER FUNCTIONS
+    // =============================================
+    const render = () => {
+        const app = document.getElementById('app');
+        
+        if (!state.currentUser) {
+            app.innerHTML = renderLogin();
+        } else {
+            app.innerHTML = renderLayout();
+        }
+        
+        attachEventListeners();
+    };
+
+    const renderLogin = () => `
+        <div class="min-h-screen bg-primary flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
+                <div class="text-center mb-8">
+                    <div class="text-4xl mb-2">🚢</div>
+                    <h1 class="text-2xl font-bold text-primary">BoatBuild CRM</h1>
+                    <p class="text-gray-500 text-sm">Finansal Yönetim Sistemi</p>
+                </div>
+                <form id="loginForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">E-posta</label>
+                        <input type="email" id="email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="ornek@boatbuild.com" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
+                        <input type="password" id="password" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="••••••••" required>
+                    </div>
+                    <div id="loginError" class="text-danger text-sm hidden">Geçersiz kullanıcı adı veya şifre</div>
+                    <button type="submit" class="w-full bg-primary text-white py-3 rounded-lg font-medium hover:bg-primary-800 transition">
+                        Giriş Yap
+                    </button>
+                </form>
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg text-sm">
+                    <p class="font-medium text-gray-700 mb-2">Demo Hesapları:</p>
+                    <p class="text-gray-600">Sahip: owner@boatbuild.com / owner123</p>
+                    <p class="text-gray-600">Operasyon: kaan@boatbuild.com / operation123</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const renderLayout = () => `
+        <div class="flex h-screen">
+            <!-- Sidebar -->
+            <aside class="w-64 bg-primary text-white flex flex-col">
+                <div class="p-4 border-b border-primary-700">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">🚢</span>
+                        <div>
+                            <h1 class="font-bold">BoatBuild CRM</h1>
+                            <p class="text-xs text-gray-300">Finansal Sistem</p>
+                        </div>
+                    </div>
+                </div>
+                <nav class="flex-1 p-4 space-y-1">
+                    <button onclick="navigate('dashboard')" class="nav-btn ${state.currentPage === 'dashboard' ? 'bg-secondary' : 'hover:bg-primary-700'} w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition">
+                        <span>📊</span> Dashboard
+                    </button>
+                    <button onclick="navigate('expenses')" class="nav-btn ${state.currentPage === 'expenses' ? 'bg-secondary' : 'hover:bg-primary-700'} w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition">
+                        <span>💰</span> Giderler
+                    </button>
+                    <button onclick="navigate('transfers')" class="nav-btn ${state.currentPage === 'transfers' ? 'bg-secondary' : 'hover:bg-primary-700'} w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition">
+                        <span>🔄</span> Transferler
+                    </button>
+                    ${Auth.isOwner() ? `
+                    <button onclick="navigate('overrides')" class="nav-btn ${state.currentPage === 'overrides' ? 'bg-secondary' : 'hover:bg-primary-700'} w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition">
+                        <span>✅</span> Hak Ediş Onayları
+                        ${state.overrides.filter(o => o.status === 'PENDING').length > 0 ? `<span class="bg-danger text-white text-xs px-2 py-0.5 rounded-full">${state.overrides.filter(o => o.status === 'PENDING').length}</span>` : ''}
+                    </button>
+                    ` : ''}
+                    <button onclick="navigate('vendors')" class="nav-btn ${state.currentPage === 'vendors' ? 'bg-secondary' : 'hover:bg-primary-700'} w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition">
+                        <span>🏢</span> Tedarikçiler
+                    </button>
+                </nav>
+                <div class="p-4 border-t border-primary-700">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 bg-secondary rounded-full flex items-center justify-center font-bold">
+                            ${state.currentUser.name.charAt(0)}
+                        </div>
+                        <div>
+                            <p class="font-medium text-sm">${state.currentUser.name}</p>
+                            <p class="text-xs text-gray-300">${state.currentUser.role === 'OWNER' ? 'Sahip' : 'Operasyon'}</p>
+                        </div>
+                    </div>
+                    <button onclick="Auth.logout()" class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-primary-700 rounded-lg transition">
+                        🚪 Çıkış Yap
+                    </button>
+                </div>
+            </aside>
+            
+            <!-- Main Content -->
+            <main class="flex-1 overflow-auto">
+                <div class="p-6">
+                    ${renderPage()}
+                </div>
+            </main>
+        </div>
+        
+        <!-- Modals -->
+        <div id="modalContainer"></div>
+    `;
+
+    const renderPage = () => {
+        switch (state.currentPage) {
+            case 'dashboard': return renderDashboard();
+            case 'expenses': return renderExpenses();
+            case 'transfers': return renderTransfers();
+            case 'overrides': return renderOverrides();
+            case 'vendors': return renderVendors();
+            default: return renderDashboard();
+        }
+    };
+
+    const renderDashboard = () => {
+        const kpis = DataOps.getKPIs();
+        const expenses = state.expenses;
+        
+        // Kategori bazlı veri
+        const byScope = {};
+        expenses.forEach(e => {
+            if (!byScope[e.work_scope_level]) byScope[e.work_scope_level] = { total: 0, hakEdis: 0 };
+            byScope[e.work_scope_level].total += parseFloat(e.amount) || 0;
+            byScope[e.work_scope_level].hakEdis += parseFloat(e.hak_edis_amount) || 0;
+        });
+        
+        // Son giderler
+        const recentExpenses = [...expenses].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
+        
+        // Aktif alertler
+        const activeAlerts = state.alerts.filter(a => !a.resolved);
+        
+        return `
+            <div class="space-y-6">
+<div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+                    <p class="text-gray-500">${Auth.isOwner() ? 'Finansal özet ve hak ediş takibi' : 'Operasyon özeti'}</p>
+                </div>
+                ${Auth.isOwner() ? `
+                <div class="flex gap-2">
+                    <button onclick="importTrideckData()" class="bg-secondary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-secondary/90 transition flex items-center gap-2">
+                        📥 Trideck 45M Import
+                    </button>
+                    <button onclick="clearTrideckData()" class="bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-300 transition">
+                        🗑️
+                    </button>
+                </div>
+                ` : ''}
+            </div>
+                
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500">Toplam Harcama</p>
+                                <p class="text-2xl font-bold text-primary money">${formatCurrency(kpis.totalSpend)}</p>
+                            </div>
+                            <div class="text-3xl">💰</div>
+                        </div>
+                    </div>
+                    <div class="bg-success text-white rounded-xl shadow p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm opacity-80">Ödenen Hak Ediş</p>
+                                <p class="text-2xl font-bold money">${formatCurrency(kpis.paidHakEdis)}</p>
+                                <p class="text-xs opacity-70">${kpis.totalSpend > 0 ? ((kpis.paidHakEdis / kpis.totalSpend) * 100).toFixed(1) : 0}% oran</p>
+                            </div>
+                            <div class="text-3xl">✅</div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-500">Potansiyel Hak Ediş</p>
+                                <p class="text-2xl font-bold text-secondary money">${formatCurrency(kpis.potentialHakEdis)}</p>
+                                <p class="text-xs text-gray-400">Henüz uygulanmamış</p>
+                            </div>
+                            <div class="text-3xl">📈</div>
+                        </div>
+                    </div>
+                    <div class="${kpis.conditionalCount > 0 ? 'bg-warning' : 'bg-white'} rounded-xl shadow p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm ${kpis.conditionalCount > 0 ? 'text-white opacity-80' : 'text-gray-500'}">Koşullu Risk</p>
+                                <p class="text-2xl font-bold ${kpis.conditionalCount > 0 ? 'text-white' : 'text-primary'} money">${formatCurrency(kpis.potentialHakEdis)}</p>
+                                <p class="text-xs ${kpis.conditionalCount > 0 ? 'text-white opacity-70' : 'text-gray-400'}">${kpis.conditionalCount} kalem onay bekliyor</p>
+                            </div>
+                            <div class="text-3xl">⚠️</div>
+                        </div>
+                    </div>
+                </div>
+                
+                ${Auth.isOwner() && (kpis.pendingTransfers > 0 || kpis.pendingOverrides > 0) ? `
+                <div class="bg-warning-50 border-l-4 border-warning p-4 rounded-r-lg">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">⚠️</span>
+                        <div>
+                            <p class="font-medium text-gray-900">Onay Bekleyen İşlemler</p>
+                            <p class="text-sm text-gray-600">
+                                ${kpis.pendingTransfers > 0 ? `${kpis.pendingTransfers} transfer` : ''}
+                                ${kpis.pendingTransfers > 0 && kpis.pendingOverrides > 0 ? ' ve ' : ''}
+                                ${kpis.pendingOverrides > 0 ? `${kpis.pendingOverrides} hak ediş onayı` : ''}
+                                bekliyor.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <h3 class="font-semibold text-gray-900 mb-4">İş Kapsamına Göre Harcamalar</h3>
+                        <canvas id="scopeChart" height="200"></canvas>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <h3 class="font-semibold text-gray-900 mb-4">Hak Ediş Dağılımı</h3>
+                        <canvas id="hakEdisChart" height="200"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Recent & Alerts -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <h3 class="font-semibold text-gray-900 mb-4">Son Giderler</h3>
+                        ${recentExpenses.length === 0 ? `
+                            <p class="text-gray-500 text-center py-8">Henüz gider kaydı yok</p>
+                        ` : `
+                            <div class="space-y-3">
+                                ${recentExpenses.map(e => `
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                        <div>
+                                            <p class="font-medium">${e.vendor_name}</p>
+                                            <p class="text-sm text-gray-500">${e.primary_tag} • ${formatDate(e.date)}</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="font-medium money">${formatCurrency(e.amount)}</p>
+                                            ${e.is_hak_edis_eligible ? `<p class="text-xs text-success">HE: ${formatCurrency(e.hak_edis_amount)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow p-6">
+                        <h3 class="font-semibold text-gray-900 mb-4">Uyarılar</h3>
+                        ${activeAlerts.length === 0 ? `
+                            <div class="text-center py-8">
+                                <div class="text-4xl mb-2">✅</div>
+                                <p class="text-success font-medium">Aktif uyarı yok</p>
+                            </div>
+                        ` : `
+                            <div class="space-y-3">
+                                ${activeAlerts.slice(0, 5).map(a => `
+                                    <div class="p-3 bg-warning-50 border-l-4 border-warning rounded-r-lg">
+                                        <p class="text-sm">${a.message}</p>
+                                        <p class="text-xs text-gray-500 mt-1">${formatDate(a.created_at)}</p>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+                
+                ${Auth.isOwner() ? `
+                <!-- Projection Table -->
+                <div class="bg-white rounded-xl shadow p-6">
+                    <h3 class="font-semibold text-gray-900 mb-4">Hak Ediş Projeksiyon Tablosu</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="text-left text-sm text-gray-500 border-b">
+                                    <th class="pb-3">Kategori</th>
+                                    <th class="pb-3">İş Kapsamı</th>
+                                    <th class="pb-3">Politika</th>
+                                    <th class="pb-3 text-right">Harcanan</th>
+                                    <th class="pb-3 text-right">Hak Ediş</th>
+                                    <th class="pb-3 text-right">%7 Maruziyet</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${state.categories.filter(c => {
+                                    const catExpenses = expenses.filter(e => e.primary_tag === c.tag);
+                                    return catExpenses.length > 0;
+                                }).map(c => {
+                                    const catExpenses = expenses.filter(e => e.primary_tag === c.tag);
+                                    const spent = catExpenses.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+                                    const hakEdis = catExpenses.reduce((s, e) => s + parseFloat(e.hak_edis_amount || 0), 0);
+                                    return `
+                                        <tr class="border-b">
+                                            <td class="py-3 font-medium">${c.name}</td>
+                                            <td class="py-3">
+                                                <span class="px-2 py-1 rounded text-xs ${
+                                                    c.scope === 'PURE_IMALAT' ? 'bg-success-50 text-success' :
+                                                    c.scope === 'MALZEME_PLUS_IMALAT' ? 'bg-warning-50 text-warning-600' :
+                                                    'bg-gray-100 text-gray-600'
+                                                }">${c.scope}</span>
+                                            </td>
+                                            <td class="py-3 text-sm">${c.policy}</td>
+                                            <td class="py-3 text-right money">${formatCurrency(spent)}</td>
+                                            <td class="py-3 text-right money text-success">${formatCurrency(hakEdis)}</td>
+                                            <td class="py-3 text-right money text-danger font-medium">${formatCurrency(spent * 0.07)}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        `;
+    };
+
+    const renderExpenses = () => `
+        <div class="space-y-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Giderler</h1>
+                    <p class="text-gray-500">Tüm giderleri görüntüle ve yönet</p>
+                </div>
+                <button onclick="showExpenseModal()" class="bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-800 transition flex items-center gap-2">
+                    <span>➕</span> Yeni Gider
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                ${state.expenses.length === 0 ? `
+                    <div class="text-center py-12">
+                        <div class="text-4xl mb-3">💰</div>
+                        <p class="text-gray-500">Henüz gider kaydı yok</p>
+                        <button onclick="showExpenseModal()" class="mt-4 text-primary font-medium hover:underline">İlk gideri ekle →</button>
+                    </div>
+                ` : `
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr class="text-left text-sm text-gray-500">
+                                <th class="px-4 py-3">Tarih</th>
+                                <th class="px-4 py-3">Tedarikçi</th>
+                                <th class="px-4 py-3">Etiket</th>
+                                <th class="px-4 py-3">İş Kapsamı</th>
+                                <th class="px-4 py-3 text-right">Tutar</th>
+                                <th class="px-4 py-3 text-center">Hak Ediş</th>
+                                <th class="px-4 py-3 text-right">HE Tutarı</th>
+                                <th class="px-4 py-3"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.expenses.map(e => `
+                                <tr class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-3 font-medium">${formatDate(e.date)}</td>
+                                    <td class="px-4 py-3">${e.vendor_name}</td>
+                                    <td class="px-4 py-3">
+                                        <span class="px-2 py-1 bg-primary-50 text-primary rounded text-xs font-medium">${e.primary_tag}</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="px-2 py-1 rounded text-xs ${
+                                            e.work_scope_level === 'PURE_IMALAT' ? 'bg-success-50 text-success' :
+                                            e.work_scope_level === 'MALZEME_PLUS_IMALAT' ? 'bg-warning-50 text-warning-600' :
+                                            'bg-gray-100 text-gray-600'
+                                        }">${e.work_scope_level}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right money font-medium">${formatCurrency(e.amount)}</td>
+                                    <td class="px-4 py-3 text-center">
+                                        ${e.is_hak_edis_eligible ? 
+                                            '<span class="text-success">✅ Uygun</span>' : 
+                                            e.requires_approval ?
+                                            '<span class="text-warning">⏳ Onay Bekliyor</span>' :
+                                            '<span class="text-gray-400">❌ Uygun Değil</span>'
+                                        }
+                                    </td>
+                                    <td class="px-4 py-3 text-right money ${e.is_hak_edis_eligible ? 'text-success font-medium' : 'text-gray-400'}">
+                                        ${e.is_hak_edis_eligible ? formatCurrency(e.hak_edis_amount) : '-'}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        ${e.requires_approval && !Auth.isOwner() ? `
+                                            <button onclick="showOverrideRequestModal('${e.id}')" class="text-sm text-primary hover:underline">Onay İste</button>
+                                        ` : ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `}
+            </div>
+            
+            <!-- Summary -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white rounded-xl shadow p-4">
+                    <p class="text-sm text-gray-500">Toplam Gider</p>
+                    <p class="text-xl font-bold text-primary money">${formatCurrency(state.expenses.reduce((s, e) => s + parseFloat(e.amount || 0), 0))}</p>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4">
+                    <p class="text-sm text-gray-500">Hak Edişli Gider</p>
+                    <p class="text-xl font-bold text-success money">${formatCurrency(state.expenses.filter(e => e.is_hak_edis_eligible).reduce((s, e) => s + parseFloat(e.amount || 0), 0))}</p>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4">
+                    <p class="text-sm text-gray-500">Toplam Hak Ediş</p>
+                    <p class="text-xl font-bold text-secondary money">${formatCurrency(state.expenses.reduce((s, e) => s + parseFloat(e.hak_edis_amount || 0), 0))}</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const renderTransfers = () => `
+        <div class="space-y-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Transferler</h1>
+                    <p class="text-gray-500">Tüm transferleri görüntüle ve yönet</p>
+                </div>
+                <button onclick="showTransferModal()" class="bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-800 transition flex items-center gap-2">
+                    <span>➕</span> Yeni Transfer
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                ${state.transfers.length === 0 ? `
+                    <div class="text-center py-12">
+                        <div class="text-4xl mb-3">🔄</div>
+                        <p class="text-gray-500">Henüz transfer kaydı yok</p>
+                        <button onclick="showTransferModal()" class="mt-4 text-primary font-medium hover:underline">İlk transferi ekle →</button>
+                    </div>
+                ` : `
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr class="text-left text-sm text-gray-500">
+                                <th class="px-4 py-3">Tarih</th>
+                                <th class="px-4 py-3">Açıklama</th>
+                                <th class="px-4 py-3">Hesaplar</th>
+                                <th class="px-4 py-3 text-right">Tutar</th>
+                                <th class="px-4 py-3 text-center">Durum</th>
+                                ${Auth.isOwner() ? '<th class="px-4 py-3 text-center">İşlem</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.transfers.map(t => `
+                                <tr class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-3 font-medium">${formatDate(t.date)}</td>
+                                    <td class="px-4 py-3">${t.description || '-'}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-500">${t.from_account || '?'} → ${t.to_account || '?'}</td>
+                                    <td class="px-4 py-3 text-right money font-medium">${formatCurrency(t.amount)}</td>
+                                    <td class="px-4 py-3 text-center">
+                                        ${t.status === 'APPROVED' ? 
+                                            '<span class="px-2 py-1 bg-success-50 text-success rounded text-xs">✅ Onaylandı</span>' : 
+                                            t.status === 'REJECTED' ?
+                                            '<span class="px-2 py-1 bg-danger-50 text-danger rounded text-xs">❌ Reddedildi</span>' :
+                                            '<span class="px-2 py-1 bg-warning-50 text-warning-600 rounded text-xs">⏳ Bekliyor</span>'
+                                        }
+                                    </td>
+                                    ${Auth.isOwner() ? `
+                                        <td class="px-4 py-3 text-center">
+                                            ${t.status === 'PENDING' ? `
+                                                <button onclick="DataOps.approveTransfer('${t.id}'); render();" class="text-success hover:underline text-sm mr-2">Onayla</button>
+                                                <button onclick="rejectTransferPrompt('${t.id}')" class="text-danger hover:underline text-sm">Reddet</button>
+                                            ` : '-'}
+                                        </td>
+                                    ` : ''}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `}
+            </div>
+        </div>
+    `;
+
+    const renderOverrides = () => `
+        <div class="space-y-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Hak Ediş Onayları</h1>
+                <p class="text-gray-500">Koşullu giderler için onay yönetimi</p>
+            </div>
+            
+            ${state.overrides.filter(o => o.status === 'PENDING').length > 0 ? `
+                <div class="bg-warning-50 border-l-4 border-warning p-4 rounded-r-lg">
+                    <p class="font-medium">${state.overrides.filter(o => o.status === 'PENDING').length} onay bekliyor</p>
+                    <p class="text-sm text-gray-600">Potansiyel risk: ${formatCurrency(state.overrides.filter(o => o.status === 'PENDING').reduce((s, o) => s + parseFloat(o.requested_amount || 0), 0))}</p>
+                </div>
+            ` : ''}
+            
+            <div class="space-y-4">
+                ${state.overrides.length === 0 ? `
+                    <div class="bg-white rounded-xl shadow p-12 text-center">
+                        <div class="text-4xl mb-3">✅</div>
+                        <p class="text-success font-medium">Bekleyen onay yok</p>
+                    </div>
+                ` : state.overrides.map(o => {
+                    const expense = state.expenses.find(e => e.id === o.expense_id);
+                    return `
+                        <div class="bg-white rounded-xl shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-4">
+                                    <div class="p-3 rounded-lg ${o.status === 'PENDING' ? 'bg-warning-50' : o.status === 'APPROVED' ? 'bg-success-50' : 'bg-danger-50'}">
+                                        ${o.status === 'PENDING' ? '⏳' : o.status === 'APPROVED' ? '✅' : '❌'}
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${expense?.vendor_name || 'Bilinmeyen'}</p>
+                                        <p class="text-sm text-gray-500">${formatDate(o.requested_at)} • ${expense?.primary_tag || ''}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-sm text-gray-500">Talep Edilen Hak Ediş</p>
+                                    <p class="text-lg font-bold text-warning money">${formatCurrency(o.requested_amount)}</p>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                                <p class="text-sm font-medium text-gray-700">Talep Gerekçesi:</p>
+                                <p class="text-gray-600">${o.reason}</p>
+                            </div>
+                            
+                            ${o.status === 'PENDING' ? `
+                                <div class="flex justify-end gap-3">
+                                    <button onclick="rejectOverridePrompt('${o.id}')" class="px-4 py-2 border border-danger text-danger rounded-lg hover:bg-danger-50 transition">
+                                        ❌ Reddet
+                                    </button>
+                                    <button onclick="DataOps.approveOverride('${o.id}'); render();" class="px-4 py-2 bg-success text-white rounded-lg hover:bg-success-600 transition">
+                                        ✅ Onayla
+                                    </button>
+                                </div>
+                            ` : `
+                                <div class="text-sm text-gray-500">
+                                    ${o.status === 'APPROVED' ? '✅ Onaylandı' : '❌ Reddedildi'} - ${formatDate(o.approved_at)}
+                                    ${o.rejection_reason ? `<br>Sebep: ${o.rejection_reason}` : ''}
+                                </div>
+                            `}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+
+    const renderVendors = () => `
+        <div class="space-y-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Tedarikçiler</h1>
+                <p class="text-gray-500">Tedarikçi listesi</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${state.vendors.map(v => {
+                    const vendorExpenses = state.expenses.filter(e => e.vendor_name === v.name);
+                    const totalSpent = vendorExpenses.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+                    return `
+                        <div class="bg-white rounded-xl shadow p-6">
+                            <div class="flex items-start justify-between mb-3">
+                                <div>
+                                    <h3 class="font-semibold">${v.name}</h3>
+                                    ${v.requires_docs ? '<span class="text-xs text-warning">📄 Belge Gerekli</span>' : ''}
+                                </div>
+                                <div class="text-2xl">🏢</div>
+                            </div>
+                            <div class="text-sm text-gray-500">${vendorExpenses.length} gider</div>
+                            <div class="text-lg font-bold money mt-2">${formatCurrency(totalSpent)}</div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+
+    // =============================================
+    // MODAL FUNCTIONS
+    // =============================================
+    window.showExpenseModal = (expense = null) => {
+        const categories = state.categories;
+        const vendors = state.vendors;
+        
+        document.getElementById('modalContainer').innerHTML = `
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                    <div class="p-6 border-b flex items-center justify-between">
+                        <h2 class="text-xl font-bold">${expense ? 'Gider Düzenle' : 'Yeni Gider'}</h2>
+                        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <form id="expenseForm" class="p-6 space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tarih *</label>
+                                <input type="date" name="date" value="${expense?.date || new Date().toISOString().split('T')[0]}" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tutar *</label>
+                                <input type="number" name="amount" value="${expense?.amount || ''}" step="0.01" min="0.01" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="0.00" required>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tedarikçi *</label>
+                            <select name="vendor_name" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" required>
+                                <option value="">Seçiniz</option>
+                                ${vendors.map(v => `<option value="${v.name}" ${expense?.vendor_name === v.name ? 'selected' : ''}>${v.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Kategori Seç</label>
+                            <div class="flex flex-wrap gap-2">
+                                ${categories.map(c => `
+                                    <button type="button" onclick="selectCategory('${c.id}')" class="category-btn px-3 py-2 rounded-lg text-sm border hover:bg-primary hover:text-white transition" data-category="${c.id}">
+                                        ${c.name}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Etiket *</label>
+                                <input type="text" name="primary_tag" id="primary_tag" value="${expense?.primary_tag || ''}" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="KAYNAK, CAM, vb." required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">İş Kapsamı *</label>
+                                <select name="work_scope_level" id="work_scope_level" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" required>
+                                    <option value="">Seçiniz</option>
+                                    <option value="PURE_IMALAT" ${expense?.work_scope_level === 'PURE_IMALAT' ? 'selected' : ''}>PURE_IMALAT (Saf İmalat)</option>
+                                    <option value="MALZEME_PLUS_IMALAT" ${expense?.work_scope_level === 'MALZEME_PLUS_IMALAT' ? 'selected' : ''}>MALZEME_PLUS_IMALAT</option>
+                                    <option value="PURE_MALZEME" ${expense?.work_scope_level === 'PURE_MALZEME' ? 'selected' : ''}>PURE_MALZEME</option>
+                                    <option value="NON_IMALAT" ${expense?.work_scope_level === 'NON_IMALAT' ? 'selected' : ''}>NON_IMALAT</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Hak Ediş Politikası *</label>
+                            <select name="hak_edis_policy" id="hak_edis_policy" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" required ${!Auth.isOwner() ? '' : ''}>
+                                <option value="">Seçiniz</option>
+                                <option value="ALWAYS_INCLUDED" ${expense?.hak_edis_policy === 'ALWAYS_INCLUDED' ? 'selected' : ''}>ALWAYS_INCLUDED (Her Zaman)</option>
+                                <option value="ALWAYS_EXCLUDED" ${expense?.hak_edis_policy === 'ALWAYS_EXCLUDED' ? 'selected' : ''}>ALWAYS_EXCLUDED (Asla)</option>
+                                <option value="CONDITIONAL" ${expense?.hak_edis_policy === 'CONDITIONAL' ? 'selected' : ''}>CONDITIONAL (Koşullu)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+                            <textarea name="description" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" rows="2" placeholder="Ek bilgi...">${expense?.description || ''}</textarea>
+                        </div>
+                        
+                        <div id="hakEdisPreview" class="p-4 bg-gray-50 rounded-lg hidden">
+                            <!-- Preview will be shown here -->
+                        </div>
+                        
+                        <div class="flex justify-end gap-3 pt-4 border-t">
+                            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-50">İptal</button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-800">Kaydet</button>
+                        </div>
+                        
+                        ${expense ? `<input type="hidden" name="id" value="${expense.id}">` : ''}
+                    </form>
+                </div>
+            </div>
+        `;
+        
+        // Add preview listener
+        const form = document.getElementById('expenseForm');
+        form.addEventListener('change', updateHakEdisPreview);
+        form.addEventListener('submit', handleExpenseSubmit);
+    };
+
+    window.selectCategory = (categoryId) => {
+        const category = state.categories.find(c => c.id === categoryId);
+        if (category) {
+            document.getElementById('primary_tag').value = category.tag;
+            document.getElementById('work_scope_level').value = category.scope;
+            document.getElementById('hak_edis_policy').value = category.policy;
+            
+            // Highlight selected
+            document.querySelectorAll('.category-btn').forEach(btn => {
+                btn.classList.remove('bg-primary', 'text-white');
+            });
+            document.querySelector(`[data-category="${categoryId}"]`).classList.add('bg-primary', 'text-white');
+            
+            updateHakEdisPreview();
+        }
+    };
+
+    const updateHakEdisPreview = () => {
+        const form = document.getElementById('expenseForm');
+        const amount = parseFloat(form.amount.value) || 0;
+        const work_scope_level = form.work_scope_level.value;
+        const hak_edis_policy = form.hak_edis_policy.value;
+        
+        if (amount && work_scope_level && hak_edis_policy) {
+            const result = HakEdisEngine.calculate({ amount, work_scope_level, hak_edis_policy });
+            const preview = document.getElementById('hakEdisPreview');
+            preview.classList.remove('hidden');
+            preview.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        ${result.eligible ? '✅' : result.requiresApproval ? '⏳' : '❌'}
+                        <span class="font-medium">${result.eligible ? 'Hak Ediş Uygulanacak' : result.requiresApproval ? 'Koşullu - Onay Gerekli' : 'Hak Ediş Uygulanmayacak'}</span>
+                    </div>
+                    <span class="text-lg font-bold ${result.eligible ? 'text-success' : result.requiresApproval ? 'text-warning' : 'text-gray-400'}">
+                        ${result.eligible || result.requiresApproval ? formatCurrency(result.amount || result.potential) : '-'}
+                    </span>
+                </div>
+                <p class="text-sm text-gray-500 mt-1">${result.reason}</p>
+            `;
+        }
+    };
+
+    const handleExpenseSubmit = (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const expense = {
+            id: form.id?.value,
+            date: form.date.value,
+            amount: parseFloat(form.amount.value),
+            vendor_name: form.vendor_name.value,
+            primary_tag: form.primary_tag.value,
+            work_scope_level: form.work_scope_level.value,
+            hak_edis_policy: form.hak_edis_policy.value,
+            description: form.description.value
+        };
+        
+        DataOps.saveExpense(expense);
+        closeModal();
+        render();
+    };
+
+    window.showTransferModal = () => {
+        document.getElementById('modalContainer').innerHTML = `
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+                    <div class="p-6 border-b flex items-center justify-between">
+                        <h2 class="text-xl font-bold">Yeni Transfer</h2>
+                        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <form id="transferForm" class="p-6 space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tarih *</label>
+                                <input type="date" name="date" value="${new Date().toISOString().split('T')[0]}" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tutar *</label>
+                                <input type="number" name="amount" step="0.01" min="0.01" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="0.00" required>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Gönderen Hesap</label>
+                                <input type="text" name="from_account" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Banka adı">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Alıcı Hesap</label>
+                                <input type="text" name="to_account" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Banka adı">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+                            <textarea name="description" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" rows="2"></textarea>
+                        </div>
+                        <div class="flex justify-end gap-3 pt-4 border-t">
+                            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-50">İptal</button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-800">Kaydet</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('transferForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const form = e.target;
+            DataOps.saveTransfer({
+                date: form.date.value,
+                amount: parseFloat(form.amount.value),
+                from_account: form.from_account.value,
+                to_account: form.to_account.value,
+                description: form.description.value
+            });
+            closeModal();
+            render();
+        });
+    };
+
+    window.showOverrideRequestModal = (expenseId) => {
+        document.getElementById('modalContainer').innerHTML = `
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+                    <div class="p-6 border-b">
+                        <h2 class="text-xl font-bold">Hak Ediş Onayı İste</h2>
+                    </div>
+                    <form id="overrideForm" class="p-6 space-y-4">
+                        <p class="text-gray-600">Bu gider için hak ediş onayı talep ediyorsunuz. Lütfen gerekçenizi yazın.</p>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Gerekçe *</label>
+                            <textarea name="reason" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:outline-none" rows="3" placeholder="Neden hak ediş uygulanmalı?" required minlength="10"></textarea>
+                        </div>
+                        <div class="flex justify-end gap-3 pt-4 border-t">
+                            <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-50">İptal</button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-800">Gönder</button>
+                        </div>
+                        <input type="hidden" name="expense_id" value="${expenseId}">
+                    </form>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('overrideForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const form = e.target;
+            DataOps.requestOverride(form.expense_id.value, form.reason.value);
+            closeModal();
+            render();
+        });
+    };
+
+    window.rejectTransferPrompt = (id) => {
+        const reason = prompt('Red sebebini giriniz:');
+        if (reason) {
+            DataOps.rejectTransfer(id, reason);
+            render();
+        }
+    };
+
+    window.rejectOverridePrompt = (id) => {
+        const reason = prompt('Red sebebini giriniz:');
+        if (reason) {
+            DataOps.rejectOverride(id, reason);
+            render();
+        }
+    };
+
+    window.closeModal = (event) => {
+        if (!event || event.target === event.currentTarget) {
+            document.getElementById('modalContainer').innerHTML = '';
+        }
+    };
+
+    // =============================================
+    // NAVIGATION
+    // =============================================
+    window.navigate = (page) => {
+        state.currentPage = page;
+        render();
+    };
+
+    // =============================================
+    // EVENT LISTENERS
+    // =============================================
+    const attachEventListeners = () => {
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                
+                if (Auth.login(email, password)) {
+                    state.currentPage = 'dashboard';
+                    DataOps.loadAll();
+                    render();
+                } else {
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            });
+        }
+        
+        // Initialize charts if on dashboard
+        if (state.currentPage === 'dashboard' && state.currentUser) {
+            setTimeout(initCharts, 100);
+        }
+    };
+
+    const initCharts = () => {
+        const expenses = state.expenses;
+        
+        // Scope Chart
+        const scopeCtx = document.getElementById('scopeChart');
+        if (scopeCtx) {
+            const scopeData = {};
+            expenses.forEach(e => {
+                if (!scopeData[e.work_scope_level]) scopeData[e.work_scope_level] = 0;
+                scopeData[e.work_scope_level] += parseFloat(e.amount) || 0;
+            });
+            
+            new Chart(scopeCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(scopeData),
+                    datasets: [{
+                        label: 'Harcama',
+                        data: Object.values(scopeData),
+                        backgroundColor: ['#2ECC71', '#F1C40F', '#00B4D8', '#E74C3C']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+        
+        // Hak Edis Chart
+        const hakEdisCtx = document.getElementById('hakEdisChart');
+        if (hakEdisCtx) {
+            const eligible = expenses.filter(e => e.is_hak_edis_eligible).reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+            const notEligible = expenses.filter(e => !e.is_hak_edis_eligible).reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+            
+            new Chart(hakEdisCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Hak Edişli', 'Hak Edişsiz'],
+                    datasets: [{
+                        data: [eligible, notEligible],
+                        backgroundColor: ['#2ECC71', '#E5E7EB']
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+    };
+
+    // =============================================
+    // TRIDECK 45M IMPORT DATA
+    // =============================================
+    const TRIDECK_IMPORT_DATA = [
+        { desc: "Trideck maliyet takibi | Kasa | 87,00 €", amount: 87 },
+        { desc: "Gökhan elden | 28.12.2023 | 40.000,00 € | Mimar Baran", amount: 40000, date: "2023-12-28", vendor: "BARAN" },
+        { desc: "Mobilya söküm işi | 5.01.2024 | 4.375,00 €", amount: 4375, date: "2024-01-05" },
+        { desc: "Gökhan elden | 9.01.2024 | 14.375,00 € | Kaan", amount: 14375, date: "2024-01-09" },
+        { desc: "Sac kalınlık ölçümü | 16.01.2024 | 492,00 €", amount: 492, date: "2024-01-16" },
+        { desc: "Gas free işlemi | 22.01.2024 | 5.230,00 €", amount: 5230, date: "2024-01-22" },
+        { desc: "Superstructure kesim | 15.02.2024 | 3.058,00 €", amount: 3058, date: "2024-02-15" },
+        { desc: "Gökhan elden | 15.02.2024 | 5.000,00 €", amount: 5000, date: "2024-02-15" },
+        { desc: "Baran'a virman | 20.000,00 €", amount: 20000, vendor: "BARAN" },
+        { desc: "Tente ön ödeme | 15.04.2024 | 20.000,00 €", amount: 20000, date: "2024-04-15" },
+        { desc: "Tente ön ödeme | 19.04.2024 | 9.500,00 €", amount: 9500, date: "2024-04-19" },
+        { desc: "Motor dairesi sökümü | 30.05.2024 | 8.695,00 €", amount: 8695, date: "2024-05-30" },
+        { desc: "Tik güverte sökümü | 10.06.2024 | 1.676,00 €", amount: 1676, date: "2024-06-10" },
+        { desc: "Tolga akdag'a hangar için | 11.07.2024 | 5.714,00 €", amount: 5714, date: "2024-07-11" },
+        { desc: "İmalat işçilik ilk grup | 17.07.2024 | 21.714,00 €", amount: 21714, date: "2024-07-17", tag: "KAYNAK" },
+        { desc: "Sac İzmirden 3850 kg | 17.07.2024 | 3.420,00 €", amount: 3420, date: "2024-07-17", tag: "MALZEME" },
+        { desc: "Nakliye vinç sac | 17.07.2024 | 314,00 €", amount: 314, date: "2024-07-17", tag: "NAKLIYE" },
+        { desc: "Sac yalovadan 13280 kg | 22.07.2024 | 12.457,00 €", amount: 12457, date: "2024-07-22", tag: "MALZEME" },
+        { desc: "Yangın tüpü 50kg 6 ad | 22.07.2024 | 1.114,00 €", amount: 1114, date: "2024-07-22" },
+        { desc: "Yanmaz kumaş perde 94kgx3€ | 23.07.2024 | 282,00 €", amount: 282, date: "2024-07-23" },
+        { desc: "Liman elektrik su vinç girişi | 23.07.2024 | 935,00 €", amount: 935, date: "2024-07-23" },
+        { desc: "Havalandırma fanları | 26.07.2024 | 342,00 €", amount: 342, date: "2024-07-26" },
+        { desc: "Tesisat söküm işi | 27.07.2024 | 2.428,00 €", amount: 2428, date: "2024-07-27", tag: "TESISAT" },
+        { desc: "Gökhan virman | 8.106,00 €", amount: 8106 },
+        { desc: "Tanktop ilave saçlar | 8.08.2024 | 2.406,00 €", amount: 2406, date: "2024-08-08", tag: "MALZEME" },
+        { desc: "Havalandırma fanı büyük | 441,00 €", amount: 441 },
+        { desc: "2. Tanktop işçiliği | 9.044,00 €", amount: 9044, tag: "KAYNAK" },
+        { desc: "3. Görder işi | 8.143,00 €", amount: 8143, tag: "KAYNAK" },
+        { desc: "Çöp nakliye 2 kamyon | 444,00 €", amount: 444, tag: "NAKLIYE" },
+        { desc: "Çöp işçilik 2 kişi 2 gün | 221,00 €", amount: 221 },
+        { desc: "Güverte kaplama sökümü | 324,00 €", amount: 324 },
+        { desc: "Kapı avans ödeme | 27.08.2024 | 49.500,00 €", amount: 49500, date: "2024-08-27" },
+        { desc: "4. Kalem güverte | 21.215,00 €", amount: 21215, tag: "KAYNAK" },
+        { desc: "Herçelik sac alımı | 23.09.2024 | 25.790,00 €", amount: 25790, date: "2024-09-23", tag: "MALZEME" },
+        { desc: "Sac kesim ve büküm nakliye dahil | 27.09.2024 | 1.426,00 €", amount: 1426, date: "2024-09-27" },
+        { desc: "5.kalem kıç bölümü | 29.09.2024 | 49.250,00 €", amount: 49250, date: "2024-09-29", tag: "KAYNAK" },
+        { desc: "Vidanjör | 30.09.2024 | 184,00 €", amount: 184, date: "2024-09-30" },
+        { desc: "Sac nakliye | 1.10.2024 | 526,00 €", amount: 526, date: "2024-10-01", tag: "NAKLIYE" },
+        { desc: "Vinç | 1.10.2024 | 223,00 €", amount: 223, date: "2024-10-01" },
+        { desc: "Kaynak teli | 4.10.2024 | 631,00 €", amount: 631, date: "2024-10-04", tag: "MALZEME" },
+        { desc: "Tesisatçı avans | 4.10.2024 | 2.666,00 €", amount: 2666, date: "2024-10-04", tag: "TESISAT" },
+        { desc: "Liman elektrik su vinç girişi | 7.09.2024 | 1.200,00 €", amount: 1200, date: "2024-09-07" },
+        { desc: "Baran akalın | 11.10.2024 | 5.000,00 €", amount: 5000, date: "2024-10-11", vendor: "BARAN" },
+        { desc: "6. Kalem sac işi | 11.10.2024 | 4.950,00 €", amount: 4950, date: "2024-10-11", tag: "KAYNAK" },
+        { desc: "7. Kalem sac işi | 1.232,00 €", amount: 1232, tag: "KAYNAK" },
+        { desc: "Kumlama avans | 16.10.2024 | 13.900,00 €", amount: 13900, date: "2024-10-16" },
+        { desc: "Malzeme bedeli | 17.10.2024 | 10.838,00 €", amount: 10838, date: "2024-10-17", tag: "MALZEME" },
+        { desc: "Vinç | 17.10.2024 | 275,00 €", amount: 275, date: "2024-10-17" },
+        { desc: "International astar | 18.10.2024 | 5.786,00 €", amount: 5786, date: "2024-10-18", tag: "BOYA" },
+        { desc: "İlave saclar | 23.10.2024 | 4.053,00 €", amount: 4053, date: "2024-10-23", tag: "MALZEME" },
+        { desc: "Tersane işçi güvenlik malz | 23.10.2024 | 720,00 €", amount: 720, date: "2024-10-23" },
+        { desc: "Ergin denizc vinç pass ön ödeme | 31.10.2024 | 16.000,00 €", amount: 16000, date: "2024-10-31" },
+        { desc: "Tesisat malzemeleri | 31.10.2024 | 1.333,00 €", amount: 1333, date: "2024-10-31", tag: "TESISAT" },
+        { desc: "Yan alt sac değişimi | 31.10.2024 | 2.300,00 €", amount: 2300, date: "2024-10-31", tag: "KAYNAK" },
+        { desc: "Kaynak gazı | 31.10.2024 | 693,00 €", amount: 693, date: "2024-10-31", tag: "MALZEME" },
+        { desc: "1,5 plaka sac 6 mm | 31.10.2024 | 906,00 €", amount: 906, date: "2024-10-31", tag: "MALZEME" },
+        { desc: "8. Kalem sac işi | 1.11.2024 | 2.300,00 €", amount: 2300, date: "2024-11-01", tag: "KAYNAK" },
+        { desc: "9. Kalem sac işi | 1.11.2024 | 5.675,00 €", amount: 5675, date: "2024-11-01", tag: "KAYNAK" },
+        { desc: "10. Kalem sac işi | 1.11.2024 | 4.054,00 €", amount: 4054, date: "2024-11-01", tag: "KAYNAK" },
+        { desc: "Elektrik su forklift tersaneye | 8.11.2024 | 1.810,00 €", amount: 1810, date: "2024-11-08" },
+        { desc: "Kumlama işçilik 2. Ödeme | 11.11.2024 | 5.000,00 €", amount: 5000, date: "2024-11-11" },
+        { desc: "Kıç taşıyıcı L lamalar | 11.11.2024 | 599,00 €", amount: 599, date: "2024-11-11", tag: "MALZEME" },
+        { desc: "11. Kalem sac işi | 14.11.2024 | 9.250,00 €", amount: 9250, date: "2024-11-14", tag: "KAYNAK" },
+        { desc: "2,5 plaka sac ön taraf için | 14.11.2024 | 1.150,00 €", amount: 1150, date: "2024-11-14", tag: "MALZEME" },
+        { desc: "Tesisatçılar ödeme | 14.11.2024 | 1.500,00 €", amount: 1500, date: "2024-11-14", tag: "TESISAT" },
+        { desc: "Sac alımı ön taraf | 21.11.2024 | 45.500,00 €", amount: 45500, date: "2024-11-21", tag: "MALZEME" },
+        { desc: "Gazlar | 21.11.2024 | 890,00 €", amount: 890, date: "2024-11-21", tag: "MALZEME" },
+        { desc: "Hangar uzatma malzeme | 22.11.2024 | 1.445,00 €", amount: 1445, date: "2024-11-22", tag: "MALZEME" },
+        { desc: "Kaynak teli | 22.11.2024 | 885,00 €", amount: 885, date: "2024-11-22", tag: "MALZEME" },
+        { desc: "Köşebent 60mt | 22.11.2024 | 540,00 €", amount: 540, date: "2024-11-22", tag: "MALZEME" },
+        { desc: "Kumlama | 4.000,00 €", amount: 4000 },
+        { desc: "Liman elektrik su vinç girişi | 27.11.2024 | 726,00 €", amount: 726, date: "2024-11-27" },
+        { desc: "Branda 160 m2 | 1.12.2024 | 3.506,00 €", amount: 3506, date: "2024-12-01" },
+        { desc: "Hangar sac işçiliği | 2.12.2024 | 3.287,00 €", amount: 3287, date: "2024-12-02", tag: "KAYNAK" },
+        { desc: "12. Kalem sac işi | 2.12.2024 | 3.200,00 €", amount: 3200, date: "2024-12-02", tag: "KAYNAK" },
+        { desc: "Yalova sac kesim 316 krom | 4.12.2024 | 5.553,00 €", amount: 5553, date: "2024-12-04", tag: "MALZEME" },
+        { desc: "Vinc | 4.12.2024 | 645,00 €", amount: 645, date: "2024-12-04" },
+        { desc: "Gaz, kaynak teli vs | 5.12.2024 | 2.421,00 €", amount: 2421, date: "2024-12-05", tag: "MALZEME" },
+        { desc: "Yalova sac nakliye vinç | 6.12.2024 | 945,00 €", amount: 945, date: "2024-12-06", tag: "NAKLIYE" },
+        { desc: "Kumlama | 11.12.2024 | 4.000,00 €", amount: 4000, date: "2024-12-11" },
+        { desc: "Tesisat | 11.12.2024 | 2.710,00 €", amount: 2710, date: "2024-12-11", tag: "TESISAT" },
+        { desc: "Üst kısım sac işleri avans | 11.12.2024 | 8.130,00 €", amount: 8130, date: "2024-12-11", tag: "KAYNAK" },
+        { desc: "Kaynak ve sarf malzeme | 17.12.2024 | 3.482,00 €", amount: 3482, date: "2024-12-17", tag: "MALZEME" },
+        { desc: "Tersane elektrik forklift vs | 17.12.2024 | 1.566,00 €", amount: 1566, date: "2024-12-17" },
+        { desc: "Tesisat malzeme | 17.12.2024 | 3.814,00 €", amount: 3814, date: "2024-12-17", tag: "TESISAT" },
+        { desc: "Kumlama işçilik | 17.12.2024 | 2.500,00 €", amount: 2500, date: "2024-12-17" },
+        { desc: "Üst kısım sac işleri | 17.12.2024 | 12.261,00 €", amount: 12261, date: "2024-12-17", tag: "KAYNAK" },
+        { desc: "Webasto ön ödeme | 20.12.2024 | 39.000,00 €", amount: 39000, date: "2024-12-20" },
+        { desc: "Boru işçiliği | 23.12.2024 | 3.000,00 €", amount: 3000, date: "2024-12-23", tag: "TESISAT" },
+        { desc: "Sac işçiliği | 23.12.2024 | 17.166,00 €", amount: 17166, date: "2024-12-23", tag: "KAYNAK" },
+        { desc: "Tersane elektrik su vb | 23.12.2024 | 4.032,00 €", amount: 4032, date: "2024-12-23" },
+        { desc: "Elektrik pano sistem haz avans | 23.12.2024 | 5.000,00 €", amount: 5000, date: "2024-12-23", tag: "ELEKTRIK" },
+        { desc: "Boru ek malzemeler krom | 23.12.2024 | 3.269,00 €", amount: 3269, date: "2024-12-23", tag: "TESISAT" },
+        { desc: "İmalat malzeme sarf | 23.12.2024 | 4.087,00 €", amount: 4087, date: "2024-12-23", tag: "MALZEME" },
+        { desc: "Ateşmarin sigorta yıllık evraklar | 23.12.2024 | 4.465,00 €", amount: 4465, date: "2024-12-23", tag: "IDARI" },
+        { desc: "Ek sac ve büküm | 23.12.2024 | 3.705,00 €", amount: 3705, date: "2024-12-23", tag: "MALZEME" },
+        { desc: "Kumlama işçilik | 23.12.2024 | 3.000,00 €", amount: 3000, date: "2024-12-23" },
+        { desc: "Sac işçiliği | 3.01.2025 | 9.536,00 €", amount: 9536, date: "2025-01-03", tag: "KAYNAK" },
+        { desc: "Kaynak malzemeleri | 3.01.2025 | 3.596,00 €", amount: 3596, date: "2025-01-03", tag: "MALZEME" },
+        { desc: "Tesisat malzeme işçilik | 3.01.2025 | 8.828,00 €", amount: 8828, date: "2025-01-03", tag: "TESISAT" },
+        { desc: "Sac 3 plaka nakliye | 3.01.2025 | 1.687,00 €", amount: 1687, date: "2025-01-03", tag: "NAKLIYE" },
+        { desc: "Kumlama | 3.01.2025 | 3.000,00 €", amount: 3000, date: "2025-01-03" },
+        { desc: "Tersane vinç elektr | 3.01.2025 | 2.615,00 €", amount: 2615, date: "2025-01-03" },
+        { desc: "Baran akalın | 3.01.2025 | 13.623,00 €", amount: 13623, date: "2025-01-03", vendor: "BARAN" },
+        { desc: "Baran akalın | 7.01.2025 | 1.377,00 €", amount: 1377, date: "2025-01-07", vendor: "BARAN" },
+        { desc: "Tesisat malzemesi | 7.01.2025 | 4.236,00 €", amount: 4236, date: "2025-01-07", tag: "TESISAT" },
+        { desc: "Sac işçiliği | 8.01.2025 | 9.536,00 €", amount: 9536, date: "2025-01-08", tag: "KAYNAK" },
+        { desc: "Tesisat işçilik | 8.01.2025 | 8.174,00 €", amount: 8174, date: "2025-01-08", tag: "TESISAT" },
+        { desc: "Kumlama astar işçilik | 8.01.2025 | 3.000,00 €", amount: 3000, date: "2025-01-08" },
+        { desc: "Tersane elektrik su vb | 8.01.2025 | 3.188,00 €", amount: 3188, date: "2025-01-08" },
+        { desc: "Sac işçiliği | 16.01.2025 | 11.267,00 €", amount: 11267, date: "2025-01-16", tag: "KAYNAK" },
+        { desc: "Kaynak malzemeleri | 16.01.2025 | 3.856,00 €", amount: 3856, date: "2025-01-16", tag: "MALZEME" },
+        { desc: "Tesisat işçilik | 16.01.2025 | 5.633,00 €", amount: 5633, date: "2025-01-16", tag: "TESISAT" },
+        { desc: "Kumlama işçilik | 16.01.2025 | 3.000,00 €", amount: 3000, date: "2025-01-16" },
+        { desc: "Çadır tamir vinç operasyon | 16.01.2025 | 1.972,00 €", amount: 1972, date: "2025-01-16" },
+        { desc: "Ekstra sac | 16.01.2025 | 2.547,00 €", amount: 2547, date: "2025-01-16", tag: "MALZEME" },
+        { desc: "Tersane elektrik forklift vs | 16.01.2025 | 2.273,00 €", amount: 2273, date: "2025-01-16" },
+        { desc: "Kara parkı | 16.01.2025 | 27.397,00 €", amount: 27397, date: "2025-01-16" },
+        { desc: "Kara parkı | 22.01.2025 | 25.675,00 €", amount: 25675, date: "2025-01-22" },
+        { desc: "Sac işçiliği | 22.01.2025 | 12.162,00 €", amount: 12162, date: "2025-01-22", tag: "KAYNAK" },
+        { desc: "Motorlar | 24.02.2025 | 44.800,00 €", amount: 44800, date: "2025-02-24", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Motorlar | 10.03.2025 | 40.000,00 €", amount: 40000, date: "2025-03-10", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Motorlar | 10.03.2025 | 8.500,00 €", amount: 8500, date: "2025-03-10", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Alüminyum ilk parti | 20.03.2025 | 41.575,00 €", amount: 41575, date: "2025-03-20", tag: "MALZEME" },
+        { desc: "Motor virman | 10.04.2025 | 40.000,00 €", amount: 40000, date: "2025-04-10", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Alüminyum ekstra | 10.04.2025 | 8.320,00 €", amount: 8320, date: "2025-04-10", tag: "MALZEME" },
+        { desc: "Motor virman | 18.04.2025 | 22.350,00 €", amount: 22350, date: "2025-04-18", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Motor virman | 2.05.2025 | 37.140,00 €", amount: 37140, date: "2025-05-02", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Motor virman | 5.05.2025 | 35.000,00 €", amount: 35000, date: "2025-05-05", tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Alüminyum 2. Parti | 26.05.2025 | 75.982,00 €", amount: 75982, date: "2025-05-26", tag: "MALZEME" },
+        { desc: "Motor nakliye gümrük | 2.06.2025 | 12.650,00 €", amount: 12650, date: "2025-06-02", tag: "MOTOR" },
+        { desc: "Alüminyum son parti | 59.800,00 €", amount: 59800, tag: "MALZEME" },
+        { desc: "Webasto | 35.000,00 €", amount: 35000 },
+        { desc: "Webasto | 35.000,00 €", amount: 35000 },
+        { desc: "Webasto | 21.000,00 €", amount: 21000 },
+        { desc: "Etkin gürel avans | 24.07.2025 | 7.500,00 €", amount: 7500, date: "2025-07-24", vendor: "ETKIN" },
+        { desc: "Etkin gürel | 7.500,00 €", amount: 7500, vendor: "ETKIN" },
+        { desc: "Baran akalın | 17.07.2025 | 10.000,00 €", amount: 10000, date: "2025-07-17", vendor: "BARAN" },
+        { desc: "Baran maket kasası | 416,00 €", amount: 416, vendor: "BARAN" },
+        { desc: "Baran akalın müh için | 2.05.2025 | 10.000,00 €", amount: 10000, date: "2025-05-02", vendor: "BARAN" },
+        { desc: "Motor son | 21.300,00 €", amount: 21300, tag: "MOTOR", vendor: "MOTOR" },
+        { desc: "Kaan | 29.01.2025 | 10.000,00 €", amount: 10000, date: "2025-01-29" },
+        { desc: "Kaan | 26.05.2025 | 10.000,00 €", amount: 10000, date: "2025-05-26" },
+        { desc: "Kaan | 24.07.2025 | 13.830,00 €", amount: 13830, date: "2025-07-24" },
+        { desc: "Kaan | 28.11.2025 | 9.223,00 €", amount: 9223, date: "2025-11-28" },
+        { desc: "Baran | 10.000,00 €", amount: 10000, vendor: "BARAN" },
+    ];
+
+    // Import function for Trideck data
+    const importTrideckData = () => {
+        const expenses = DB.get('expenses') || [];
+        const existingCount = expenses.length;
+        
+        // Check if already imported
+        if (expenses.some(e => e.source === 'TRIDECK_IMPORT')) {
+            alert('Trideck verileri zaten içe aktarılmış!');
+            return;
+        }
+        
+        TRIDECK_IMPORT_DATA.forEach((item, index) => {
+            // Determine category based on tag
+            let work_scope_level = 'MALZEME_PLUS_IMALAT';
+            let hak_edis_policy = 'CONDITIONAL';
+            
+            if (item.tag === 'KAYNAK' || item.tag === 'MONTAJ' || item.tag === 'TESISAT' || item.tag === 'ELEKTRIK') {
+                work_scope_level = 'PURE_IMALAT';
+                hak_edis_policy = 'CONDITIONAL'; // Still CONDITIONAL per user rules
+            } else if (item.tag === 'MALZEME' || item.tag === 'MOTOR') {
+                work_scope_level = 'PURE_MALZEME';
+                hak_edis_policy = 'ALWAYS_EXCLUDED';
+            } else if (item.tag === 'NAKLIYE' || item.tag === 'IDARI' || item.tag === 'REKLAM') {
+                work_scope_level = 'NON_IMALAT';
+                hak_edis_policy = 'ALWAYS_EXCLUDED';
+            }
+            
+            // Per user rule: ALL records start as CONDITIONAL, no auto hak ediş
+            const expense = {
+                id: 'trideck_' + (index + 1),
+                date: item.date || '2024-01-01',
+                amount: item.amount,
+                vendor_name: item.vendor || 'Genel Tedarikçi',
+                primary_tag: item.tag || 'UNCLASSIFIED',
+                work_scope_level: work_scope_level,
+                hak_edis_policy: 'CONDITIONAL', // ALWAYS CONDITIONAL per user rules
+                description: item.desc,
+                created_at: new Date().toISOString(),
+                created_by: '1', // Owner
+                source: 'TRIDECK_IMPORT',
+                currency: 'EUR',
+                // Per user rules: NO auto hak ediş inference
+                is_hak_edis_eligible: false,
+                hak_edis_amount: 0,
+                hak_edis_reason: 'Import - Manuel inceleme gerekli',
+                potential_hak_edis: Math.round(item.amount * 0.07 * 100) / 100,
+                requires_approval: true
+            };
+            
+            expenses.push(expense);
+        });
+        
+        DB.set('expenses', expenses);
+        DataOps.loadAll();
+        
+        alert(`${TRIDECK_IMPORT_DATA.length} kayıt başarıyla içe aktarıldı!\n\nTüm kayıtlar CONDITIONAL olarak işaretlendi.\nHak ediş otomatik hesaplanmadı.\nManuel inceleme gerekli.`);
+        render();
+    };
+
+    // Clear Trideck data function
+    const clearTrideckData = () => {
+        if (!confirm('Trideck import verilerini silmek istediğinizden emin misiniz?')) return;
+        
+        let expenses = DB.get('expenses') || [];
+        expenses = expenses.filter(e => e.source !== 'TRIDECK_IMPORT');
+        DB.set('expenses', expenses);
+        DataOps.loadAll();
+        alert('Trideck verileri silindi.');
+        render();
+    };
+
+    // Make functions global
+    window.importTrideckData = importTrideckData;
+    window.clearTrideckData = clearTrideckData;
+
+    // =============================================
+    // INITIALIZATION
+    // =============================================
+    DB.init();
+    
+    // Check for existing session
+    const savedUser = DB.get('currentUser');
+    if (savedUser) {
+        state.currentUser = savedUser;
+        state.currentPage = 'dashboard';
+        DataOps.loadAll();
+    }
+    
+    render();
+    </script>
+</body>
+</html>

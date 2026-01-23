@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trideck 45M - CRM Import Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e4;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #4ade80;
+        }
+        .stat-value.warning {
+            color: #fbbf24;
+        }
+        .stat-value.info {
+            color: #60a5fa;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+        .rules-banner {
+            background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .rules-banner .icon {
+            font-size: 24px;
+        }
+        .rules-banner .text {
+            flex: 1;
+        }
+        .rules-banner .title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .rules-banner .desc {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        .search-filter {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .search-filter input, .search-filter select {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #fff;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .search-filter input:focus, .search-filter select:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
+        .search-filter input::placeholder {
+            color: #666;
+        }
+        .table-container {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: rgba(0,0,0,0.3);
+            padding: 14px 12px;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 13px;
+        }
+        tr:hover {
+            background: rgba(255,255,255,0.03);
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-conditional {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        .status-approved {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+        .bool-true {
+            color: #4ade80;
+        }
+        .bool-false {
+            color: #f87171;
+        }
+        .amount {
+            font-family: 'Monaco', monospace;
+            color: #60a5fa;
+        }
+        .description-cell {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            padding: 20px;
+        }
+        .pagination button {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .pagination button:hover:not(:disabled) {
+            background: #4f46e5;
+        }
+        .pagination button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .pagination .page-info {
+            color: #888;
+            font-size: 14px;
+        }
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #888;
+        }
+        .loading::after {
+            content: '';
+            display: block;
+            width: 40px;
+            height: 40px;
+            margin: 20px auto;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Trideck 45M REBASE Import</h1>
+            <p class="subtitle">Historical Raw Import - CRM Review Dashboard</p>
+        </header>
+
+        <div class="rules-banner">
+            <span class="icon">⚠️</span>
+            <div class="text">
+                <div class="title">Import Kuralları</div>
+                <div class="desc">Hak ediş otomatik hesaplanmaz • Tüm kayıtlar CONDITIONAL • CRM'de manuel inceleme gerekli</div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalRecords">-</div>
+                <div class="stat-label">Toplam Kayıt</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value warning" id="conditionalCount">-</div>
+                <div class="stat-label">Conditional</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value info" id="totalAmount">-</div>
+                <div class="stat-label">Toplam Tutar (EUR)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="uniqueVendors">-</div>
+                <div class="stat-label">Unique Vendor</div>
+            </div>
+        </div>
+
+        <div class="search-filter">
+            <input type="text" id="searchInput" placeholder="Ara (description, vendor...)">
+            <select id="statusFilter">
+                <option value="">Tüm Durumlar</option>
+                <option value="CONDITIONAL">CONDITIONAL</option>
+            </select>
+            <select id="currencyFilter">
+                <option value="">Tüm Para Birimleri</option>
+            </select>
+        </div>
+
+        <div class="table-container">
+            <div id="tableWrapper">
+                <div class="loading">Veriler yükleniyor...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let filteredData = [];
+        let currentPage = 1;
+        const pageSize = 50;
+
+        // CSV'yi parse et
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = parseCSVLine(lines[0]);
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index] || '';
+                });
+                data.push(row);
+            }
+            return data;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        }
+
+        // Tabloyu render et
+        function renderTable(data) {
+            if (data.length === 0) {
+                document.getElementById('tableWrapper').innerHTML = '<div class="loading">Kayıt bulunamadı</div>';
+                return;
+            }
+
+            const start = (currentPage - 1) * pageSize;
+            const end = Math.min(start + pageSize, data.length);
+            const pageData = data.slice(start, end);
+            const totalPages = Math.ceil(data.length / pageSize);
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Vendor</th>
+                            <th>Amount</th>
+                            <th>Currency</th>
+                            <th>Status</th>
+                            <th>Hak Ediş Auto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            pageData.forEach((row, index) => {
+                const statusClass = row.CRM_STATUS === 'CONDITIONAL' ? 'status-conditional' : 'status-approved';
+                const hakEdisClass = row.HAK_EDIS_AUTO_INFER === 'FALSE' ? 'bool-false' : 'bool-true';
+                
+                html += `
+                    <tr>
+                        <td>${start + index + 1}</td>
+                        <td>${row.date || '-'}</td>
+                        <td class="description-cell" title="${row.description}">${row.description || '-'}</td>
+                        <td>${row.vendor || '-'}</td>
+                        <td class="amount">${formatNumber(row.amount)}</td>
+                        <td>${row.currency || '-'}</td>
+                        <td><span class="status-badge ${statusClass}">${row.CRM_STATUS}</span></td>
+                        <td class="${hakEdisClass}">${row.HAK_EDIS_AUTO_INFER}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+                <div class="pagination">
+                    <button onclick="changePage(-1)" ${currentPage === 1 ? 'disabled' : ''}>← Önceki</button>
+                    <span class="page-info">Sayfa ${currentPage} / ${totalPages} (${data.length} kayıt)</span>
+                    <button onclick="changePage(1)" ${currentPage >= totalPages ? 'disabled' : ''}>Sonraki →</button>
+                </div>
+            `;
+
+            document.getElementById('tableWrapper').innerHTML = html;
+        }
+
+        function formatNumber(num) {
+            if (!num) return '-';
+            return parseFloat(num).toLocaleString('tr-TR');
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderTable(filteredData);
+        }
+
+        // İstatistikleri güncelle
+        function updateStats(data) {
+            document.getElementById('totalRecords').textContent = data.length;
+            document.getElementById('conditionalCount').textContent = data.filter(r => r.CRM_STATUS === 'CONDITIONAL').length;
+            
+            const total = data.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+            document.getElementById('totalAmount').textContent = formatNumber(total);
+            
+            const vendors = new Set(data.map(r => r.vendor).filter(v => v));
+            document.getElementById('uniqueVendors').textContent = vendors.size;
+        }
+
+        // Para birimi filtresi için seçenekleri doldur
+        function populateCurrencyFilter(data) {
+            const currencies = [...new Set(data.map(r => r.currency).filter(c => c))];
+            const select = document.getElementById('currencyFilter');
+            currencies.forEach(currency => {
+                const option = document.createElement('option');
+                option.value = currency;
+                option.textContent = currency;
+                select.appendChild(option);
+            });
+        }
+
+        // Filtreleme
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const status = document.getElementById('statusFilter').value;
+            const currency = document.getElementById('currencyFilter').value;
+
+            filteredData = allData.filter(row => {
+                const matchSearch = !search || 
+                    (row.description && row.description.toLowerCase().includes(search)) ||
+                    (row.vendor && row.vendor.toLowerCase().includes(search));
+                const matchStatus = !status || row.CRM_STATUS === status;
+                const matchCurrency = !currency || row.currency === currency;
+                return matchSearch && matchStatus && matchCurrency;
+            });
+
+            currentPage = 1;
+            renderTable(filteredData);
+            updateStats(filteredData);
+        }
+
+        // Event listeners
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+        document.getElementById('statusFilter').addEventListener('change', applyFilters);
+        document.getElementById('currencyFilter').addEventListener('change', applyFilters);
+
+        // Veriyi yükle
+        fetch('Trideck_45M_REBASE_IMPORT_CRM_READY.csv')
+            .then(response => response.text())
+            .then(text => {
+                allData = parseCSV(text);
+                filteredData = allData;
+                populateCurrencyFilter(allData);
+                updateStats(allData);
+                renderTable(allData);
+            })
+            .catch(error => {
+                document.getElementById('tableWrapper').innerHTML = 
+                    '<div class="loading">Hata: CSV dosyası yüklenemedi</div>';
+                console.error(error);
+            });
+    </script>
+</body>
+</html>
