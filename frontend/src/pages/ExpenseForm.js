@@ -16,6 +16,8 @@ import {
   FileText,
   Trash2,
   Info,
+  Plus,
+  X,
 } from 'lucide-react';
 
 const WORK_SCOPE_LEVELS = [
@@ -64,6 +66,15 @@ const ExpenseForm = () => {
   const [docRequired, setDocRequired] = useState(null);
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategory, setNewCategory] = useState({
+    name: '',
+    primary_tag: '',
+    default_work_scope: '',
+    default_hak_edis_policy: '',
+    requires_documentation: false,
+    description: '',
+  });
 
   useEffect(() => {
     fetchInitialData();
@@ -292,6 +303,49 @@ const ExpenseForm = () => {
     }
   };
 
+  const handleCreateCategory = async () => {
+    const categoryErrors = {};
+    if (!newCategory.name) categoryErrors.name = 'Kategori adı zorunludur';
+    if (!newCategory.primary_tag) categoryErrors.primary_tag = 'Birincil etiket zorunludur';
+    if (!newCategory.default_work_scope) categoryErrors.default_work_scope = 'İş kapsamı seviyesi zorunludur';
+    if (!newCategory.default_hak_edis_policy) categoryErrors.default_hak_edis_policy = 'Hak ediş politikası zorunludur';
+
+    if (Object.keys(categoryErrors).length > 0) {
+      setErrors({ category: categoryErrors });
+      return;
+    }
+
+    try {
+      const response = await expensesAPI.createCategory(newCategory);
+      const createdCategory = response.data.data.category;
+      
+      // Add to categories list
+      setCategories(prev => [...prev, createdCategory].sort((a, b) => a.name.localeCompare(b.name)));
+      
+      // Auto-select the new category
+      handleCategorySelect(createdCategory);
+      
+      // Reset form and close modal
+      setNewCategory({
+        name: '',
+        primary_tag: '',
+        default_work_scope: '',
+        default_hak_edis_policy: '',
+        requires_documentation: false,
+        description: '',
+      });
+      setShowCategoryModal(false);
+      setErrors({});
+    } catch (error) {
+      console.error('Failed to create category:', error);
+      setErrors({ 
+        category: { 
+          submit: error.response?.data?.error || 'Kategori oluşturulamadı' 
+        } 
+      });
+    }
+  };
+
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -480,7 +534,17 @@ const ExpenseForm = () => {
 
         {/* Category Quick Select */}
         <div className="card">
-          <h3 className="font-semibold text-text mb-4">Hızlı Kategori Seçimi</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-text">Hızlı Kategori Seçimi</h3>
+            <button
+              type="button"
+              onClick={() => setShowCategoryModal(true)}
+              className="btn-outline text-sm flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Category
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {categories.slice(0, 8).map(cat => (
               <button
@@ -806,6 +870,153 @@ const ExpenseForm = () => {
               >
                 Onay İste
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Category Modal */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-modal max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-text">Yeni Kategori Ekle</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  setNewCategory({
+                    name: '',
+                    primary_tag: '',
+                    default_work_scope: '',
+                    default_hak_edis_policy: '',
+                    requires_documentation: false,
+                    description: '',
+                  });
+                  setErrors({});
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label">Kategori Adı *</label>
+                <input
+                  type="text"
+                  value={newCategory.name}
+                  onChange={(e) => setNewCategory(prev => ({ ...prev, name: e.target.value }))}
+                  className={`input ${errors.category?.name ? 'input-error' : ''}`}
+                  placeholder="Örn: Boya + Uygulama"
+                />
+                {errors.category?.name && <p className="text-sm text-danger mt-1">{errors.category.name}</p>}
+              </div>
+
+              <div>
+                <label className="label">Birincil Etiket *</label>
+                <input
+                  type="text"
+                  value={newCategory.primary_tag}
+                  onChange={(e) => setNewCategory(prev => ({ ...prev, primary_tag: e.target.value.toUpperCase() }))}
+                  className={`input ${errors.category?.primary_tag ? 'input-error' : ''}`}
+                  placeholder="Örn: BOYA"
+                />
+                {errors.category?.primary_tag && <p className="text-sm text-danger mt-1">{errors.category.primary_tag}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Varsayılan İş Kapsamı Seviyesi *</label>
+                  <select
+                    value={newCategory.default_work_scope}
+                    onChange={(e) => setNewCategory(prev => ({ ...prev, default_work_scope: e.target.value }))}
+                    className={`select ${errors.category?.default_work_scope ? 'input-error' : ''}`}
+                  >
+                    <option value="">Seçiniz</option>
+                    {WORK_SCOPE_LEVELS.map(ws => (
+                      <option key={ws.value} value={ws.value}>{ws.label}</option>
+                    ))}
+                  </select>
+                  {errors.category?.default_work_scope && <p className="text-sm text-danger mt-1">{errors.category.default_work_scope}</p>}
+                </div>
+
+                <div>
+                  <label className="label">Varsayılan Hak Ediş Politikası *</label>
+                  <select
+                    value={newCategory.default_hak_edis_policy}
+                    onChange={(e) => setNewCategory(prev => ({ ...prev, default_hak_edis_policy: e.target.value }))}
+                    className={`select ${errors.category?.default_hak_edis_policy ? 'input-error' : ''}`}
+                  >
+                    <option value="">Seçiniz</option>
+                    {HAK_EDIS_POLICIES.map(hp => (
+                      <option key={hp.value} value={hp.value}>{hp.label}</option>
+                    ))}
+                  </select>
+                  {errors.category?.default_hak_edis_policy && <p className="text-sm text-danger mt-1">{errors.category.default_hak_edis_policy}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Açıklama</label>
+                <textarea
+                  value={newCategory.description}
+                  onChange={(e) => setNewCategory(prev => ({ ...prev, description: e.target.value }))}
+                  className="input"
+                  rows={2}
+                  placeholder="Kategori hakkında açıklama (opsiyonel)"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="requires_doc"
+                  checked={newCategory.requires_documentation}
+                  onChange={(e) => setNewCategory(prev => ({ ...prev, requires_documentation: e.target.checked }))}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="requires_doc" className="text-sm text-text">
+                  Belge gerektirir
+                </label>
+              </div>
+
+              {errors.category?.submit && (
+                <div className="alert-danger">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>{errors.category.submit}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCategoryModal(false);
+                    setNewCategory({
+                      name: '',
+                      primary_tag: '',
+                      default_work_scope: '',
+                      default_hak_edis_policy: '',
+                      requires_documentation: false,
+                      description: '',
+                    });
+                    setErrors({});
+                  }}
+                  className="btn-ghost"
+                >
+                  İptal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateCategory}
+                  className="btn-primary"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Kategori Ekle
+                </button>
+              </div>
             </div>
           </div>
         </div>

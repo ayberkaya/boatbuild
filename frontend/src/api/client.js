@@ -56,6 +56,7 @@ export const expensesAPI = {
   update: (id, data) => client.put(`/expenses/${id}`, data),
   delete: (id) => client.delete(`/expenses/${id}`),
   categories: () => client.get('/expenses/categories/list'),
+  createCategory: (data) => client.post('/expenses/categories', data),
 };
 
 // Transfers API

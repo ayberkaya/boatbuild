@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { dashboardAPI } from '../api/client';
 import {
@@ -15,6 +16,7 @@ import {
   Clock,
   FileWarning,
   ArrowRight,
+  Calendar,
 } from 'lucide-react';
 import {
   BarChart,
@@ -30,7 +32,7 @@ import {
 } from 'recharts';
 
 // KPI Card Component
-const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, variant = 'default' }) => {
+const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, variant = 'default', onClick }) => {
   const variants = {
     default: 'bg-white',
     primary: 'bg-primary text-white',
@@ -49,7 +51,10 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
   };
 
   return (
-    <div className={`card ${variants[variant]}`}>
+    <div 
+      className={`card ${variants[variant]} ${onClick ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
+      onClick={onClick}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className={`text-sm font-medium ${variant === 'default' ? 'text-text-secondary' : 'opacity-80'}`}>
@@ -124,6 +129,7 @@ const AlertItem = ({ alert, onResolve }) => {
 };
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const { isOwner } = useAuth();
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState(null);
@@ -203,6 +209,7 @@ const Dashboard = () => {
           title="Toplam Harcama"
           value={kpis?.total_spend || 0}
           icon={DollarSign}
+          onClick={() => navigate('/expenses')}
         />
         <KPICard
           title="Ödenen Hak Ediş"
@@ -210,19 +217,22 @@ const Dashboard = () => {
           subtitle={`${((kpis?.paid_hak_edis / kpis?.total_spend) * 100 || 0).toFixed(1)}% oran`}
           icon={CheckCircle}
           variant="success"
+          onClick={() => navigate('/expenses?is_hak_edis_eligible=true')}
         />
         <KPICard
           title="Potansiyel Hak Ediş"
           value={kpis?.remaining_potential || 0}
           subtitle="Henüz uygulanmamış"
           icon={TrendingUp}
+          onClick={() => navigate('/expenses?is_hak_edis_eligible=false')}
         />
         <KPICard
-          title="Koşullu Risk"
-          value={kpis?.conditional_exposure || 0}
-          subtitle={`${kpis?.conditional_count || 0} kalem onay bekliyor`}
-          icon={AlertTriangle}
-          variant={kpis?.conditional_exposure > 0 ? 'warning' : 'default'}
+          title="Gelecek Harcamalar"
+          value={kpis?.future_expenses || 0}
+          subtitle={`${kpis?.pending_transfers || 0} transfer onay bekliyor`}
+          icon={Calendar}
+          variant="warning"
+          onClick={() => navigate('/transfers?status=PENDING')}
         />
       </div>
 

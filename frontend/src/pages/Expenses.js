@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { expensesAPI } from '../api/client';
 import {
@@ -22,18 +22,31 @@ import {
 
 const Expenses = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isOwner } = useAuth();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
   const [filters, setFilters] = useState({
-    start_date: '',
-    end_date: '',
-    primary_tag: '',
-    work_scope_level: '',
-    is_hak_edis_eligible: '',
+    start_date: searchParams.get('start_date') || '',
+    end_date: searchParams.get('end_date') || '',
+    primary_tag: searchParams.get('primary_tag') || '',
+    work_scope_level: searchParams.get('work_scope_level') || '',
+    is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
   });
   const [showFilters, setShowFilters] = useState(false);
+
+  // Update filters from URL params on mount
+  useEffect(() => {
+    const urlFilters = {
+      start_date: searchParams.get('start_date') || '',
+      end_date: searchParams.get('end_date') || '',
+      primary_tag: searchParams.get('primary_tag') || '',
+      work_scope_level: searchParams.get('work_scope_level') || '',
+      is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
+    };
+    setFilters(urlFilters);
+  }, [searchParams]);
 
   useEffect(() => {
     fetchExpenses();

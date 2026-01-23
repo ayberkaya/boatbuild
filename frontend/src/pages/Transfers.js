@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { transfersAPI } from '../api/client';
 import {
@@ -22,12 +22,21 @@ import {
 
 const Transfers = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isOwner } = useAuth();
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
   const [actionLoading, setActionLoading] = useState(null);
+
+  // Update filter from URL params on mount
+  useEffect(() => {
+    const urlStatus = searchParams.get('status') || '';
+    if (urlStatus) {
+      setStatusFilter(urlStatus);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchTransfers();

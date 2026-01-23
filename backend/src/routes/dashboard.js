@@ -63,11 +63,12 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
         const mismatch = parseFloat(mismatchResult.rows[0].total_transfers) - 
                          parseFloat(mismatchResult.rows[0].linked_expense_total);
 
-        // Pending approvals count
+        // Pending approvals count and future expenses
         const pendingApprovalsResult = await query(`
             SELECT 
                 (SELECT COUNT(*) FROM transfers WHERE status = 'PENDING') as pending_transfers,
-                (SELECT COUNT(*) FROM hak_edis_overrides WHERE status = 'PENDING') as pending_overrides
+                (SELECT COUNT(*) FROM hak_edis_overrides WHERE status = 'PENDING') as pending_overrides,
+                (SELECT COALESCE(SUM(amount), 0) FROM transfers WHERE status = 'PENDING') as future_expenses
         `);
 
         res.json({
@@ -80,7 +81,8 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
                 conditional_count: parseInt(conditionalResult.rows[0].conditional_count),
                 transfer_expense_mismatch: mismatch,
                 pending_transfers: parseInt(pendingApprovalsResult.rows[0].pending_transfers),
-                pending_overrides: parseInt(pendingApprovalsResult.rows[0].pending_overrides)
+                pending_overrides: parseInt(pendingApprovalsResult.rows[0].pending_overrides),
+                future_expenses: parseFloat(pendingApprovalsResult.rows[0].future_expenses)
             }
         });
     } catch (error) {

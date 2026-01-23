@@ -485,4 +485,72 @@ router.get('/categories/list', authenticate, requireAuthenticated, async (req, r
     }
 });
 
+/**
+ * POST /api/expenses/categories
+ * Create new expense category
+ */
+router.post('/categories', authenticate, requireAuthenticated, [
+    body('name').notEmpty().trim(),
+    body('primary_tag').notEmpty().trim(),
+    body('default_work_scope').isIn(Object.values(WORK_SCOPE_LEVEL)),
+    body('default_hak_edis_policy').isIn(Object.values(HAK_EDIS_POLICY)),
+    body('requires_documentation').optional().isBoolean(),
+    body('description').optional().trim()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                errors: errors.array()
+            });
+        }
+
+        const {
+            name,
+            primary_tag,
+            default_work_scope,
+            default_hak_edis_policy,
+            requires_documentation = false,
+            description
+        } = req.body;
+
+        // Check if category with same name or primary_tag exists
+        const existing = await query(
+            'SELECT category_id FROM expense_categories WHERE name = $1 OR primary_tag = $2',
+            [name, primary_tag]
+        );
+
+        if (existing.rows.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Category with this name or primary tag already exists'
+            });
+        }
+
+        const result = await query(`
+            INSERT INTO expense_categories (
+                name, primary_tag, default_work_scope, default_hak_edis_policy,
+                requires_documentation, description
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+        `, [name, primary_tag, default_work_scope, default_hak_edis_policy, requires_documentation, description]);
+
+        await logAudit(req.user.user_id, 'CREATE_CATEGORY', 'expense_categories', result.rows[0].category_id, null, result.rows[0], req);
+
+        res.status(201).json({
+            success: true,
+            data: {
+                category: result.rows[0]
+            }
+        });
+    } catch (error) {
+        console.error('[Expenses] Create category error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create category'
+        });
+    }
+});
+
 module.exports = router;
