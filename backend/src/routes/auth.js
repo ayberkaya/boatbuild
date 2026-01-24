@@ -16,7 +16,7 @@ const router = express.Router();
  * User login
  */
 router.post('/login', [
-    body('email').isEmail().normalizeEmail(),
+    body('email').isEmail(),
     body('password').notEmpty()
 ], async (req, res) => {
     try {
@@ -29,13 +29,17 @@ router.post('/login', [
         }
 
         const { email, password } = req.body;
+        
+        // Normalize email to lowercase for comparison
+        const normalizedEmail = email.toLowerCase().trim();
 
         const result = await query(
-            'SELECT user_id, email, password_hash, full_name, role, is_active FROM users WHERE email = $1',
-            [email]
+            'SELECT user_id, email, password_hash, full_name, role, is_active FROM users WHERE LOWER(email) = $1',
+            [normalizedEmail]
         );
 
         if (result.rows.length === 0) {
+            console.error('[Auth] Login failed: User not found', { email: normalizedEmail });
             return res.status(401).json({
                 success: false,
                 error: 'Invalid credentials'
@@ -45,6 +49,7 @@ router.post('/login', [
         const user = result.rows[0];
 
         if (!user.is_active) {
+            console.error('[Auth] Login failed: Account deactivated', { email: normalizedEmail });
             return res.status(403).json({
                 success: false,
                 error: 'Account is deactivated'
@@ -53,6 +58,7 @@ router.post('/login', [
 
         const isValidPassword = await bcrypt.compare(password, user.password_hash);
         if (!isValidPassword) {
+            console.error('[Auth] Login failed: Invalid password', { email: normalizedEmail });
             return res.status(401).json({
                 success: false,
                 error: 'Invalid credentials'

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { documentsAPI } from '../api/client';
 import {
   FileText,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 
 const Documents = () => {
+  const { isOwner } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [missingDocs, setMissingDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -304,13 +306,15 @@ const Documents = () => {
                             >
                               <Download className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(doc.document_id)}
-                              className="p-2 hover:bg-danger-50 rounded-lg text-danger"
-                              title="Sil"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {isOwner && (
+                              <button
+                                onClick={() => handleDelete(doc.document_id)}
+                                className="p-2 hover:bg-danger-50 rounded-lg text-danger"
+                                title="Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

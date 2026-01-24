@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { query, transaction } = require('../db/connection');
-const { authenticate, requireAuthenticated, logAudit } = require('../middleware/auth');
+const { authenticate, requireAuthenticated, requireOwner, logAudit } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -288,9 +288,9 @@ router.get('/:id/download', authenticate, requireAuthenticated, async (req, res)
 
 /**
  * DELETE /api/documents/:id
- * Delete document
+ * Delete document (Owner only)
  */
-router.delete('/:id', authenticate, requireAuthenticated, async (req, res) => {
+router.delete('/:id', authenticate, requireOwner, async (req, res) => {
     try {
         const { id } = req.params;
 

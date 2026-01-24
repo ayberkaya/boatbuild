@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { vendorsAPI } from '../api/client';
 import {
   Plus,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 
 const Vendors = () => {
+  const { isOwner } = useAuth();
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -250,13 +252,15 @@ const Vendors = () => {
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => handleDelete(vendor.vendor_id)}
-                  className="p-2 text-danger hover:bg-danger-50 rounded-lg"
-                  title="Sil"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {isOwner && (
+                  <button
+                    onClick={() => handleDelete(vendor.vendor_id)}
+                    className="p-2 text-danger hover:bg-danger-50 rounded-lg"
+                    title="Sil"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           ))}
