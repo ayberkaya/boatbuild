@@ -102,7 +102,8 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
                 d.*,
                 u.full_name as uploaded_by_name,
                 e.vendor_name as expense_vendor,
-                e.amount as expense_amount
+                e.amount as expense_amount,
+                e.currency as expense_currency
             FROM documents d
             LEFT JOIN users u ON d.uploaded_by = u.user_id
             LEFT JOIN expenses e ON d.expense_id = e.expense_id
@@ -200,6 +201,48 @@ router.post('/upload', authenticate, requireAuthenticated, upload.single('file')
         res.status(500).json({
             success: false,
             error: 'Failed to upload document'
+        });
+    }
+});
+
+/**
+ * GET /api/documents/:id/preview
+ * Preview document (inline display)
+ */
+router.get('/:id/preview', authenticate, requireAuthenticated, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await query(
+            'SELECT * FROM documents WHERE document_id = $1',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Document not found'
+            });
+        }
+
+        const doc = result.rows[0];
+
+        if (!fs.existsSync(doc.file_path)) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not found on server'
+            });
+        }
+
+        // Set headers for inline display
+        res.setHeader('Content-Type', doc.mime_type);
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.file_name)}"`);
+        res.sendFile(path.resolve(doc.file_path));
+    } catch (error) {
+        console.error('[Documents] Preview error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to preview document'
         });
     }
 });

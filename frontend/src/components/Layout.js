@@ -43,29 +43,29 @@ const Layout = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Mobile sidebar overlay */}
+      {/* Sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-primary transform transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-50 h-full w-64 bg-primary transform transition-transform duration-200 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-primary-700">
-          <Ship className="w-8 h-8 text-secondary" />
-          <div>
+          <Ship className="w-8 h-8 text-secondary flex-shrink-0" />
+          <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-white">BoatBuild</h1>
             <p className="text-xs text-primary-300">CRM System</p>
           </div>
           <button
-            className="ml-auto lg:hidden text-white"
+            className="ml-auto text-white hover:bg-primary-800 p-1 rounded"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="w-6 h-6" />
@@ -112,20 +112,20 @@ const Layout = () => {
       </aside>
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div>
         {/* Top header */}
         <header className="sticky top-0 z-30 bg-white border-b border-gray-200">
           <div className="flex items-center justify-between px-4 py-3 lg:px-6">
-            {/* Mobile menu button */}
+            {/* Menu toggle button */}
             <button
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100"
+              className="p-2 rounded-lg hover:bg-gray-100"
               onClick={() => setSidebarOpen(true)}
             >
               <Menu className="w-6 h-6 text-text" />
             </button>
 
             {/* Page title area - can be used for breadcrumbs */}
-            <div className="hidden lg:block" />
+            <div className="flex-1" />
 
             {/* Right side actions */}
             <div className="flex items-center gap-3">

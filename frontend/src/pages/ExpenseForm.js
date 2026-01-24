@@ -675,7 +675,7 @@ const ExpenseForm = () => {
                   {hakEdisCalc.hakEdisAmount > 0 ? (
                     <>
                       {hakEdisCalc.isConditional ? 'Potansiyel: ' : ''}
-                      {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(hakEdisCalc.hakEdisAmount)}
+                      {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: formData.currency || 'TRY' }).format(hakEdisCalc.hakEdisAmount)}
                     </>
                   ) : '-'}
                 </span>

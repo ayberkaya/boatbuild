@@ -20,29 +20,37 @@ const router = express.Router();
  */
 router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
     try {
-        // Total Spend
+        // Total Spend by currency
         const totalSpendResult = await query(`
-            SELECT COALESCE(SUM(amount), 0) as total_spend
+            SELECT 
+                currency,
+                COALESCE(SUM(amount), 0) as total_spend
             FROM expenses
+            GROUP BY currency
         `);
 
-        // Total Paid Hak Ediş (realized)
+        // Total Paid Hak Ediş (realized) by currency
         const paidHakEdisResult = await query(`
-            SELECT COALESCE(SUM(hak_edis_amount), 0) as paid_hak_edis
+            SELECT 
+                currency,
+                COALESCE(SUM(hak_edis_amount), 0) as paid_hak_edis
             FROM expenses
             WHERE is_hak_edis_eligible = true
+            GROUP BY currency
         `);
 
-        // Remaining Potential Hak Ediş
+        // Remaining Potential Hak Ediş by currency
         const potentialResult = await query(`
             SELECT 
+                currency,
                 COALESCE(SUM(amount * 0.07), 0) as potential_hak_edis
             FROM expenses
             WHERE work_scope_level IN ('PURE_IMALAT', 'MALZEME_PLUS_IMALAT')
             AND is_hak_edis_eligible = false
+            GROUP BY currency
         `);
 
-        // Conditional Risk Exposure (pending approval)
+        // Conditional Risk Exposure (pending approval) - not used in KPIs anymore but kept for compatibility
         const conditionalResult = await query(`
             SELECT 
                 COALESCE(SUM(amount * 0.07), 0) as conditional_exposure,
@@ -63,26 +71,55 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
         const mismatch = parseFloat(mismatchResult.rows[0].total_transfers) - 
                          parseFloat(mismatchResult.rows[0].linked_expense_total);
 
-        // Pending approvals count and future expenses
+        // Pending approvals count and future expenses by currency
         const pendingApprovalsResult = await query(`
             SELECT 
                 (SELECT COUNT(*) FROM transfers WHERE status = 'PENDING') as pending_transfers,
-                (SELECT COUNT(*) FROM hak_edis_overrides WHERE status = 'PENDING') as pending_overrides,
-                (SELECT COALESCE(SUM(amount), 0) FROM transfers WHERE status = 'PENDING') as future_expenses
+                (SELECT COUNT(*) FROM hak_edis_overrides WHERE status = 'PENDING') as pending_overrides
         `);
+
+        const futureExpensesResult = await query(`
+            SELECT 
+                currency,
+                COALESCE(SUM(amount), 0) as future_expenses
+            FROM transfers
+            WHERE status = 'PENDING'
+            GROUP BY currency
+        `);
+
+        // Convert results to objects keyed by currency
+        const totalSpendByCurrency = {};
+        totalSpendResult.rows.forEach(row => {
+            totalSpendByCurrency[row.currency] = parseFloat(row.total_spend);
+        });
+
+        const paidHakEdisByCurrency = {};
+        paidHakEdisResult.rows.forEach(row => {
+            paidHakEdisByCurrency[row.currency] = parseFloat(row.paid_hak_edis);
+        });
+
+        const potentialByCurrency = {};
+        potentialResult.rows.forEach(row => {
+            potentialByCurrency[row.currency] = parseFloat(row.potential_hak_edis);
+        });
+
+        const futureExpensesByCurrency = {};
+        futureExpensesResult.rows.forEach(row => {
+            futureExpensesByCurrency[row.currency] = parseFloat(row.future_expenses);
+        });
 
         res.json({
             success: true,
             data: {
-                total_spend: parseFloat(totalSpendResult.rows[0].total_spend),
-                paid_hak_edis: parseFloat(paidHakEdisResult.rows[0].paid_hak_edis),
-                remaining_potential: parseFloat(potentialResult.rows[0].potential_hak_edis),
+                total_spend: totalSpendByCurrency,
+                paid_hak_edis: paidHakEdisByCurrency,
+                remaining_potential: potentialByCurrency,
                 conditional_exposure: parseFloat(conditionalResult.rows[0].conditional_exposure),
                 conditional_count: parseInt(conditionalResult.rows[0].conditional_count),
                 transfer_expense_mismatch: mismatch,
                 pending_transfers: parseInt(pendingApprovalsResult.rows[0].pending_transfers),
                 pending_overrides: parseInt(pendingApprovalsResult.rows[0].pending_overrides),
-                future_expenses: parseFloat(pendingApprovalsResult.rows[0].future_expenses)
+                future_expenses: futureExpensesByCurrency
             }
         });
     } catch (error) {
@@ -229,42 +266,77 @@ router.get('/tables/future-projection', authenticate, requireAuthenticated, asyn
     try {
         const projectionCategories = getProjectionCategories();
 
-        // Get current stats for each category
+        // Get current stats for each category by currency
         const result = await query(`
             SELECT 
                 primary_tag,
+                currency,
                 COUNT(*) as expense_count,
                 COALESCE(SUM(amount), 0) as total_spent,
                 COALESCE(SUM(CASE WHEN is_hak_edis_eligible THEN hak_edis_amount ELSE 0 END), 0) as paid_hak_edis,
                 COALESCE(SUM(CASE WHEN is_hak_edis_eligible = false AND hak_edis_policy = 'CONDITIONAL' THEN amount * 0.07 ELSE 0 END), 0) as pending_potential
             FROM expenses
             WHERE primary_tag = ANY($1)
-            GROUP BY primary_tag
+            GROUP BY primary_tag, currency
         `, [projectionCategories.map(c => c.tag)]);
 
-        // Map results to projection categories
+        // Map results to projection categories with currency breakdown
         const projection = projectionCategories.map(category => {
-            const stats = result.rows.find(r => r.primary_tag === category.tag) || {
-                expense_count: 0,
-                total_spent: 0,
-                paid_hak_edis: 0,
-                pending_potential: 0
-            };
+            const categoryStats = result.rows.filter(r => r.primary_tag === category.tag);
+            
+            // Aggregate by currency
+            const byCurrency = {};
+            categoryStats.forEach(stat => {
+                byCurrency[stat.currency] = {
+                    expense_count: parseInt(stat.expense_count) || 0,
+                    total_spent: parseFloat(stat.total_spent) || 0,
+                    paid_hak_edis: parseFloat(stat.paid_hak_edis) || 0,
+                    pending_potential: parseFloat(stat.pending_potential) || 0,
+                    estimated_7_percent_exposure: parseFloat(stat.total_spent) * HAK_EDIS_RATE
+                };
+            });
+
+            // Calculate totals across all currencies
+            const totals = Object.values(byCurrency).reduce((acc, curr) => ({
+                expense_count: acc.expense_count + curr.expense_count,
+                total_spent: acc.total_spent + curr.total_spent,
+                paid_hak_edis: acc.paid_hak_edis + curr.paid_hak_edis,
+                pending_potential: acc.pending_potential + curr.pending_potential,
+                estimated_7_percent_exposure: acc.estimated_7_percent_exposure + curr.estimated_7_percent_exposure
+            }), { expense_count: 0, total_spent: 0, paid_hak_edis: 0, pending_potential: 0, estimated_7_percent_exposure: 0 });
 
             return {
                 tag: category.tag,
                 name: category.name,
                 work_scope: category.work_scope,
                 policy: category.policy,
-                expense_count: parseInt(stats.expense_count) || 0,
-                total_spent: parseFloat(stats.total_spent) || 0,
-                paid_hak_edis: parseFloat(stats.paid_hak_edis) || 0,
-                pending_potential: parseFloat(stats.pending_potential) || 0,
-                estimated_7_percent_exposure: parseFloat(stats.total_spent) * HAK_EDIS_RATE
+                by_currency: byCurrency,
+                expense_count: totals.expense_count,
+                total_spent: totals.total_spent,
+                paid_hak_edis: totals.paid_hak_edis,
+                pending_potential: totals.pending_potential,
+                estimated_7_percent_exposure: totals.estimated_7_percent_exposure
             };
         });
 
-        // Summary totals
+        // Summary totals by currency
+        const totalsByCurrency = {};
+        result.rows.forEach(row => {
+            if (!totalsByCurrency[row.currency]) {
+                totalsByCurrency[row.currency] = {
+                    total_spent: 0,
+                    paid_hak_edis: 0,
+                    pending_potential: 0,
+                    total_exposure: 0
+                };
+            }
+            totalsByCurrency[row.currency].total_spent += parseFloat(row.total_spent) || 0;
+            totalsByCurrency[row.currency].paid_hak_edis += parseFloat(row.paid_hak_edis) || 0;
+            totalsByCurrency[row.currency].pending_potential += parseFloat(row.pending_potential) || 0;
+            totalsByCurrency[row.currency].total_exposure += (parseFloat(row.total_spent) || 0) * HAK_EDIS_RATE;
+        });
+
+        // Also calculate overall totals for backward compatibility
         const totals = projection.reduce((acc, p) => ({
             total_spent: acc.total_spent + p.total_spent,
             paid_hak_edis: acc.paid_hak_edis + p.paid_hak_edis,
@@ -276,7 +348,8 @@ router.get('/tables/future-projection', authenticate, requireAuthenticated, asyn
             success: true,
             data: {
                 projection,
-                totals
+                totals,
+                totals_by_currency: totalsByCurrency
             }
         });
     } catch (error) {

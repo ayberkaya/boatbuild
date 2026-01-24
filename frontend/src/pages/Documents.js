@@ -16,6 +16,8 @@ import {
   File,
   Image,
   FileSpreadsheet,
+  Eye,
+  X,
 } from 'lucide-react';
 
 const Documents = () => {
@@ -26,10 +28,22 @@ const Documents = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
   }, [typeFilter]);
+
+  // Cleanup preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   const fetchData = async () => {
     try {
@@ -73,11 +87,43 @@ const Documents = () => {
     }
   };
 
+  const handlePreview = async (doc) => {
+    try {
+      setPreviewLoading(true);
+      setPreviewDoc(doc);
+      const url = await documentsAPI.preview(doc.document_id);
+      setPreviewUrl(url);
+    } catch (error) {
+      console.error('Preview failed:', error);
+      alert('Belge önizlemesi yüklenemedi');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewDoc(null);
+    setPreviewUrl(null);
+    setPreviewLoading(false);
+  };
+
   const getFileIcon = (mimeType) => {
     if (mimeType?.includes('image')) return Image;
     if (mimeType?.includes('spreadsheet') || mimeType?.includes('excel')) return FileSpreadsheet;
     if (mimeType?.includes('pdf')) return FileText;
     return File;
+  };
+
+  const canPreview = (mimeType) => {
+    if (!mimeType) return false;
+    return (
+      mimeType.includes('image') ||
+      mimeType.includes('pdf') ||
+      mimeType.includes('text')
+    );
   };
 
   const formatFileSize = (bytes) => {
@@ -97,10 +143,10 @@ const Documents = () => {
     });
   };
 
-  const formatCurrency = (amount) => {
+  const formatCurrency = (amount, currency = 'TRY') => {
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
-      currency: 'TRY',
+      currency: currency,
     }).format(amount);
   };
 
@@ -231,7 +277,7 @@ const Documents = () => {
                             <div>
                               <p className="text-sm">{doc.expense_vendor}</p>
                               <p className="text-xs text-text-muted money">
-                                {formatCurrency(doc.expense_amount)}
+                                {formatCurrency(doc.expense_amount, doc.expense_currency)}
                               </p>
                             </div>
                           ) : (
@@ -242,6 +288,15 @@ const Documents = () => {
                         <td className="text-sm text-text-secondary">{formatDate(doc.uploaded_at)}</td>
                         <td>
                           <div className="flex items-center gap-1">
+                            {canPreview(doc.mime_type) && (
+                              <button
+                                onClick={() => handlePreview(doc)}
+                                className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
+                                title="Önizle"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDownload(doc)}
                               className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
@@ -342,6 +397,73 @@ const Documents = () => {
             </div>
           )}
         </>
+      )}
+
+      {/* Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={closePreview}>
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h3 className="font-semibold text-lg">{previewDoc.file_name}</h3>
+                <p className="text-sm text-text-secondary">{previewDoc.document_type}</p>
+              </div>
+              <button
+                onClick={closePreview}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+                title="Kapat"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {previewLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+                </div>
+              ) : previewUrl ? (
+                previewDoc.mime_type?.includes('image') ? (
+                  <div className="flex items-center justify-center">
+                    <img src={previewUrl} alt={previewDoc.file_name} className="max-w-full max-h-[70vh] object-contain" />
+                  </div>
+                ) : previewDoc.mime_type?.includes('pdf') ? (
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-[70vh] border-0"
+                    title={previewDoc.file_name}
+                  />
+                ) : (
+                  <div className="text-center py-12">
+                    <FileText className="w-12 h-12 text-text-muted mx-auto mb-4" />
+                    <p className="text-text-secondary">Bu dosya türü için önizleme desteklenmiyor</p>
+                    <button
+                      onClick={() => handleDownload(previewDoc)}
+                      className="btn-primary mt-4"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      İndir
+                    </button>
+                  </div>
+                )
+              ) : null}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t">
+              <button
+                onClick={() => handleDownload(previewDoc)}
+                className="btn-outline"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                İndir
+              </button>
+              <button
+                onClick={closePreview}
+                className="btn-primary"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Summary Stats */}

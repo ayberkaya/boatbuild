@@ -18,6 +18,8 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 const Expenses = () => {
@@ -35,6 +37,8 @@ const Expenses = () => {
     is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Update filters from URL params on mount
   useEffect(() => {
@@ -99,6 +103,27 @@ const Expenses = () => {
       return { icon: Clock, class: 'text-warning', label: 'Onay Bekliyor' };
     }
     return { icon: XCircle, class: 'text-text-muted', label: 'Uygun Değil' };
+  };
+
+  const handleDeleteClick = (e, expense) => {
+    e.stopPropagation();
+    setDeleteConfirm(expense);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return;
+
+    try {
+      setDeleting(true);
+      await expensesAPI.delete(deleteConfirm.expense_id);
+      setDeleteConfirm(null);
+      fetchExpenses();
+    } catch (error) {
+      console.error('Failed to delete expense:', error);
+      alert(error.response?.data?.error || 'Gider silinemedi');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -256,9 +281,27 @@ const Expenses = () => {
                             : '-'}
                         </td>
                         <td>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg">
-                            <Eye className="w-4 h-4 text-text-secondary" />
-                          </button>
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/expenses/${expense.expense_id}`);
+                              }}
+                              className="p-2 hover:bg-gray-100 rounded-lg"
+                              title="Detayları görüntüle"
+                            >
+                              <Eye className="w-4 h-4 text-text-secondary" />
+                            </button>
+                            {isOwner && (
+                              <button
+                                onClick={(e) => handleDeleteClick(e, expense)}
+                                className="p-2 hover:bg-danger-50 rounded-lg text-danger"
+                                title="Gideri sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -297,23 +340,135 @@ const Expenses = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Gider</p>
-          <p className="text-xl font-bold text-primary money">
-            {formatCurrency(expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0))}
-          </p>
+          <div className="space-y-1">
+            {['TRY', 'USD', 'EUR'].map(currency => {
+              const total = expenses
+                .filter(e => e.currency === currency)
+                .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+              if (total === 0) return null;
+              return (
+                <p key={currency} className="text-xl font-bold text-primary money">
+                  {formatCurrency(total, currency)}
+                </p>
+              );
+            })}
+            {['TRY', 'USD', 'EUR'].every(c => 
+              expenses.filter(e => e.currency === c).reduce((sum, e) => sum + parseFloat(e.amount), 0) === 0
+            ) && (
+              <p className="text-xl font-bold text-primary money">
+                {formatCurrency(0, 'TRY')}
+              </p>
+            )}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Hak Edişli Gider</p>
-          <p className="text-xl font-bold text-success money">
-            {formatCurrency(expenses.filter(e => e.is_hak_edis_eligible).reduce((sum, e) => sum + parseFloat(e.amount), 0))}
-          </p>
+          <div className="space-y-1">
+            {['TRY', 'USD', 'EUR'].map(currency => {
+              const total = expenses
+                .filter(e => e.is_hak_edis_eligible && e.currency === currency)
+                .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+              if (total === 0) return null;
+              return (
+                <p key={currency} className="text-xl font-bold text-success money">
+                  {formatCurrency(total, currency)}
+                </p>
+              );
+            })}
+            {['TRY', 'USD', 'EUR'].every(c => 
+              expenses.filter(e => e.is_hak_edis_eligible && e.currency === c).reduce((sum, e) => sum + parseFloat(e.amount), 0) === 0
+            ) && (
+              <p className="text-xl font-bold text-success money">
+                {formatCurrency(0, 'TRY')}
+              </p>
+            )}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Hak Ediş</p>
-          <p className="text-xl font-bold text-secondary money">
-            {formatCurrency(expenses.reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0))}
-          </p>
+          <div className="space-y-1">
+            {['TRY', 'USD', 'EUR'].map(currency => {
+              const total = expenses
+                .filter(e => e.currency === currency)
+                .reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0);
+              if (total === 0) return null;
+              return (
+                <p key={currency} className="text-xl font-bold text-secondary money">
+                  {formatCurrency(total, currency)}
+                </p>
+              );
+            })}
+            {['TRY', 'USD', 'EUR'].every(c => 
+              expenses.filter(e => e.currency === c).reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0) === 0
+            ) && (
+              <p className="text-xl font-bold text-secondary money">
+                {formatCurrency(0, 'TRY')}
+              </p>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-modal max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-danger-50 rounded-lg">
+                <AlertTriangle className="w-6 h-6 text-danger" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-text">Gideri Sil</h3>
+                <p className="text-sm text-text-secondary">Bu işlem geri alınamaz</p>
+              </div>
+            </div>
+
+            <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-text-secondary mb-2">Silinecek gider:</p>
+              <p className="font-medium text-text">{deleteConfirm.vendor_name}</p>
+              <p className="text-sm text-text-muted mt-1">
+                {formatDate(deleteConfirm.date)} • {formatCurrency(deleteConfirm.amount, deleteConfirm.currency)}
+              </p>
+              <p className="text-sm text-text-muted">
+                Etiket: <span className="font-medium">{deleteConfirm.primary_tag}</span>
+              </p>
+            </div>
+
+            <p className="text-sm text-text-secondary mb-4">
+              Bu gideri silmek istediğinizden emin misiniz? Bu işlem gideri, bağlı belgeleri ve uyarıları kalıcı olarak silecektir.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="btn-ghost"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="btn-danger"
+              >
+                {deleting ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                    Siliniyor...
+                  </span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Sil
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -86,6 +86,10 @@ export const documentsAPI = {
     client.post('/documents/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  preview: async (id) => {
+    const response = await client.get(`/documents/${id}/preview`, { responseType: 'blob' });
+    return URL.createObjectURL(response.data);
+  },
   download: (id) => client.get(`/documents/${id}/download`, { responseType: 'blob' }),
   delete: (id) => client.delete(`/documents/${id}`),
   missing: () => client.get('/documents/missing/list'),

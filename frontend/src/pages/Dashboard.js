@@ -56,13 +56,23 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
-        <div>
+        <div className="flex-1 min-w-0">
           <p className={`text-sm font-medium ${variant === 'default' ? 'text-text-secondary' : 'opacity-80'}`}>
             {title}
           </p>
-          <p className={`text-2xl font-bold mt-1 money ${variant === 'default' ? 'text-primary' : ''}`}>
-            {typeof value === 'number' ? formatCurrency(value) : value}
-          </p>
+          {Array.isArray(value) ? (
+            <div className="space-y-1 mt-1">
+              {value.map((currencyValue, index) => (
+                <p key={index} className={`text-2xl font-bold money ${variant === 'default' ? 'text-primary' : ''} break-words`}>
+                  {currencyValue}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-2xl font-bold mt-1 money ${variant === 'default' ? 'text-primary' : ''} break-words`}>
+              {typeof value === 'number' ? formatCurrency(value) : value}
+            </p>
+          )}
           {subtitle && (
             <p className={`text-sm mt-1 ${variant === 'default' ? 'text-text-muted' : 'opacity-70'}`}>
               {subtitle}
@@ -174,13 +184,27 @@ const Dashboard = () => {
     }
   };
 
-  const formatCurrency = (val) => {
+  const formatCurrency = (val, currency = 'TRY') => {
+    if (typeof val === 'string') return val; // Already formatted
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
-      currency: 'TRY',
+      currency: currency,
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(val);
+    }).format(val || 0);
+  };
+
+  const formatCurrencyMulti = (valuesByCurrency) => {
+    if (!valuesByCurrency || typeof valuesByCurrency !== 'object') {
+      return formatCurrency(0);
+    }
+    
+    const currencies = Object.keys(valuesByCurrency).filter(c => valuesByCurrency[c] > 0);
+    if (currencies.length === 0) {
+      return formatCurrency(0);
+    }
+    
+    return currencies.map(currency => formatCurrency(valuesByCurrency[currency], currency));
   };
 
   if (loading) {
@@ -207,28 +231,41 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           title="Toplam Harcama"
-          value={kpis?.total_spend || 0}
+          value={formatCurrencyMulti(kpis?.total_spend)}
           icon={DollarSign}
           onClick={() => navigate('/expenses')}
         />
         <KPICard
           title="Ödenen Hak Ediş"
-          value={kpis?.paid_hak_edis || 0}
-          subtitle={`${((kpis?.paid_hak_edis / kpis?.total_spend) * 100 || 0).toFixed(1)}% oran`}
+          value={formatCurrencyMulti(kpis?.paid_hak_edis)}
+          subtitle={(() => {
+            const totalSpend = kpis?.total_spend || {};
+            const paidHakEdis = kpis?.paid_hak_edis || {};
+            const currencies = Object.keys(totalSpend).filter(c => totalSpend[c] > 0);
+            if (currencies.length === 0) return '0.0% oran';
+            // Calculate percentage for each currency and show if significant
+            const percentages = currencies.map(c => {
+              const total = totalSpend[c] || 0;
+              const paid = paidHakEdis[c] || 0;
+              return total > 0 ? ((paid / total) * 100).toFixed(1) : 0;
+            }).filter(p => parseFloat(p) > 0);
+            if (percentages.length === 0) return '0.0% oran';
+            return `${percentages[0]}% oran`;
+          })()}
           icon={CheckCircle}
           variant="success"
           onClick={() => navigate('/expenses?is_hak_edis_eligible=true')}
         />
         <KPICard
           title="Potansiyel Hak Ediş"
-          value={kpis?.remaining_potential || 0}
+          value={formatCurrencyMulti(kpis?.remaining_potential)}
           subtitle="Henüz uygulanmamış"
           icon={TrendingUp}
           onClick={() => navigate('/expenses?is_hak_edis_eligible=false')}
         />
         <KPICard
           title="Gelecek Harcamalar"
-          value={kpis?.future_expenses || 0}
+          value={formatCurrencyMulti(kpis?.future_expenses)}
           subtitle={`${kpis?.pending_transfers || 0} transfer onay bekliyor`}
           icon={Calendar}
           variant="warning"
@@ -334,43 +371,150 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody>
-                {projection.projection.filter(p => p.total_spent > 0).map((item) => (
-                  <tr key={item.tag}>
-                    <td className="font-medium">{item.name}</td>
-                    <td>
-                      <span className={`badge ${
-                        item.work_scope === 'PURE_IMALAT' ? 'badge-success' :
-                        item.work_scope === 'MALZEME_PLUS_IMALAT' ? 'badge-warning' :
-                        'badge-secondary'
-                      }`}>
-                        {item.work_scope}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`text-sm ${
-                        item.policy === 'ALWAYS_INCLUDED' ? 'text-success' :
-                        item.policy === 'CONDITIONAL' ? 'text-warning' :
-                        'text-text-muted'
-                      }`}>
-                        {item.policy}
-                      </span>
-                    </td>
-                    <td className="text-right money">{formatCurrency(item.total_spent)}</td>
-                    <td className="text-right money text-success">{formatCurrency(item.paid_hak_edis)}</td>
-                    <td className="text-right money text-warning">{formatCurrency(item.pending_potential)}</td>
-                    <td className="text-right money text-danger font-medium">
-                      {formatCurrency(item.estimated_7_percent_exposure)}
-                    </td>
-                  </tr>
-                ))}
+                {projection.projection.filter(p => p.total_spent > 0).map((item) => {
+                  const byCurrency = item.by_currency || {};
+                  const currencies = Object.keys(byCurrency).filter(c => byCurrency[c].total_spent > 0);
+                  
+                  return (
+                    <tr key={item.tag}>
+                      <td className="font-medium">{item.name}</td>
+                      <td>
+                        <span className={`badge ${
+                          item.work_scope === 'PURE_IMALAT' ? 'badge-success' :
+                          item.work_scope === 'MALZEME_PLUS_IMALAT' ? 'badge-warning' :
+                          'badge-secondary'
+                        }`}>
+                          {item.work_scope}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`text-sm ${
+                          item.policy === 'ALWAYS_INCLUDED' ? 'text-success' :
+                          item.policy === 'CONDITIONAL' ? 'text-warning' :
+                          'text-text-muted'
+                        }`}>
+                          {item.policy}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        {currencies.length > 0 ? (
+                          <div className="space-y-1">
+                            {currencies.map(currency => (
+                              <div key={currency} className="money">
+                                {formatCurrency(byCurrency[currency].total_spent, currency)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="money">{formatCurrency(0)}</span>
+                        )}
+                      </td>
+                      <td className="text-right text-success">
+                        {currencies.length > 0 ? (
+                          <div className="space-y-1">
+                            {currencies.map(currency => (
+                              <div key={currency} className="money">
+                                {formatCurrency(byCurrency[currency].paid_hak_edis, currency)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="money">{formatCurrency(0)}</span>
+                        )}
+                      </td>
+                      <td className="text-right text-warning">
+                        {currencies.length > 0 ? (
+                          <div className="space-y-1">
+                            {currencies.map(currency => (
+                              <div key={currency} className="money">
+                                {formatCurrency(byCurrency[currency].pending_potential, currency)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="money">{formatCurrency(0)}</span>
+                        )}
+                      </td>
+                      <td className="text-right text-danger font-medium">
+                        {currencies.length > 0 ? (
+                          <div className="space-y-1">
+                            {currencies.map(currency => (
+                              <div key={currency} className="money">
+                                {formatCurrency(byCurrency[currency].estimated_7_percent_exposure, currency)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="money">{formatCurrency(0)}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 font-semibold">
                   <td colSpan={3}>TOPLAM</td>
-                  <td className="text-right money">{formatCurrency(projection.totals.total_spent)}</td>
-                  <td className="text-right money text-success">{formatCurrency(projection.totals.paid_hak_edis)}</td>
-                  <td className="text-right money text-warning">{formatCurrency(projection.totals.pending_potential)}</td>
-                  <td className="text-right money text-danger">{formatCurrency(projection.totals.total_exposure)}</td>
+                  <td className="text-right">
+                    {projection.totals_by_currency ? (
+                      <div className="space-y-1">
+                        {Object.keys(projection.totals_by_currency)
+                          .filter(c => projection.totals_by_currency[c].total_spent > 0)
+                          .map(currency => (
+                            <div key={currency} className="money">
+                              {formatCurrency(projection.totals_by_currency[currency].total_spent, currency)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <span className="money">{formatCurrency(projection.totals.total_spent)}</span>
+                    )}
+                  </td>
+                  <td className="text-right text-success">
+                    {projection.totals_by_currency ? (
+                      <div className="space-y-1">
+                        {Object.keys(projection.totals_by_currency)
+                          .filter(c => projection.totals_by_currency[c].paid_hak_edis > 0)
+                          .map(currency => (
+                            <div key={currency} className="money">
+                              {formatCurrency(projection.totals_by_currency[currency].paid_hak_edis, currency)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <span className="money">{formatCurrency(projection.totals.paid_hak_edis)}</span>
+                    )}
+                  </td>
+                  <td className="text-right text-warning">
+                    {projection.totals_by_currency ? (
+                      <div className="space-y-1">
+                        {Object.keys(projection.totals_by_currency)
+                          .filter(c => projection.totals_by_currency[c].pending_potential > 0)
+                          .map(currency => (
+                            <div key={currency} className="money">
+                              {formatCurrency(projection.totals_by_currency[currency].pending_potential, currency)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <span className="money">{formatCurrency(projection.totals.pending_potential)}</span>
+                    )}
+                  </td>
+                  <td className="text-right text-danger">
+                    {projection.totals_by_currency ? (
+                      <div className="space-y-1">
+                        {Object.keys(projection.totals_by_currency)
+                          .filter(c => projection.totals_by_currency[c].total_exposure > 0)
+                          .map(currency => (
+                            <div key={currency} className="money">
+                              {formatCurrency(projection.totals_by_currency[currency].total_exposure, currency)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <span className="money">{formatCurrency(projection.totals.total_exposure)}</span>
+                    )}
+                  </td>
                 </tr>
               </tfoot>
             </table>
