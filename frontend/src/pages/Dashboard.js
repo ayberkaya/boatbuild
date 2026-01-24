@@ -351,11 +351,8 @@ const Dashboard = () => {
       {/* Future Projection Table (Owner only) */}
       {isOwner && projection && (
         <div className="card">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4">
             <h3 className="font-semibold text-text">Gelecek Hak Ediş Projeksiyonu</h3>
-            <span className="text-sm text-text-secondary">
-              Tahmini %7 maruz kalım
-            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="table">
@@ -367,7 +364,7 @@ const Dashboard = () => {
                   <th className="text-right">Harcanan</th>
                   <th className="text-right">Ödenen Hak Ediş</th>
                   <th className="text-right">Bekleyen</th>
-                  <th className="text-right">%7 Maruziyet</th>
+                  <th className="text-right">%7 Hakediş</th>
                 </tr>
               </thead>
               <tbody>
