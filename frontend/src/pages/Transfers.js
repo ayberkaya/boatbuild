@@ -96,6 +96,45 @@ const Transfers = () => {
     }).format(amount);
   };
 
+  // Group transfers by currency and calculate totals
+  const calculateTotalsByCurrency = (transferList) => {
+    const totals = {};
+    transferList.forEach(t => {
+      const currency = t.currency || 'TRY';
+      if (!totals[currency]) {
+        totals[currency] = 0;
+      }
+      totals[currency] += parseFloat(t.amount || 0);
+    });
+    return totals;
+  };
+
+  // Format multiple currencies for display
+  const formatCurrencyMulti = (totalsByCurrency) => {
+    if (!totalsByCurrency || Object.keys(totalsByCurrency).length === 0) {
+      return [formatCurrency(0)];
+    }
+    const currencies = Object.keys(totalsByCurrency).filter(c => totalsByCurrency[c] > 0);
+    if (currencies.length === 0) {
+      return [formatCurrency(0)];
+    }
+    return currencies.map(currency => formatCurrency(totalsByCurrency[currency], currency));
+  };
+
+  // Calculate linked expense totals by currency
+  const calculateLinkedExpenseTotalsByCurrency = (transferList) => {
+    const totals = {};
+    transferList.forEach(t => {
+      // Use the transfer's currency for linked expenses
+      const currency = t.currency || 'TRY';
+      if (!totals[currency]) {
+        totals[currency] = 0;
+      }
+      totals[currency] += parseFloat(t.linked_expense_total || 0);
+    });
+    return totals;
+  };
+
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('tr-TR');
   };
@@ -279,27 +318,43 @@ const Transfers = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Transfer</p>
-          <p className="text-xl font-bold text-primary money">
-            {formatCurrency(transfers.reduce((sum, t) => sum + parseFloat(t.amount), 0))}
-          </p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(calculateTotalsByCurrency(transfers)).map((formatted, index) => (
+              <p key={index} className="text-xl font-bold text-primary money">
+                {formatted}
+              </p>
+            ))}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Onaylanan</p>
-          <p className="text-xl font-bold text-success money">
-            {formatCurrency(transfers.filter(t => t.status === 'APPROVED').reduce((sum, t) => sum + parseFloat(t.amount), 0))}
-          </p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(calculateTotalsByCurrency(transfers.filter(t => t.status === 'APPROVED'))).map((formatted, index) => (
+              <p key={index} className="text-xl font-bold text-success money">
+                {formatted}
+              </p>
+            ))}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Bekleyen</p>
-          <p className="text-xl font-bold text-warning money">
-            {formatCurrency(transfers.filter(t => t.status === 'PENDING').reduce((sum, t) => sum + parseFloat(t.amount), 0))}
-          </p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(calculateTotalsByCurrency(transfers.filter(t => t.status === 'PENDING'))).map((formatted, index) => (
+              <p key={index} className="text-xl font-bold text-warning money">
+                {formatted}
+              </p>
+            ))}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Bağlı Gider Toplamı</p>
-          <p className="text-xl font-bold text-secondary money">
-            {formatCurrency(transfers.reduce((sum, t) => sum + parseFloat(t.linked_expense_total || 0), 0))}
-          </p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(calculateLinkedExpenseTotalsByCurrency(transfers)).map((formatted, index) => (
+              <p key={index} className="text-xl font-bold text-secondary money">
+                {formatted}
+              </p>
+            ))}
+          </div>
         </div>
       </div>
     </div>
