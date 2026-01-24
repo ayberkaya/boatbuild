@@ -147,12 +147,27 @@ const Vendors = () => {
     }
   };
 
-  const formatCurrency = (amount) => {
+  const formatCurrency = (amount, currency = 'TRY') => {
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
-      currency: 'TRY',
+      currency: currency,
       minimumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const formatCurrencyMulti = (expensesByCurrency) => {
+    if (!expensesByCurrency || typeof expensesByCurrency !== 'object') {
+      return formatCurrency(0);
+    }
+    
+    const currencies = Object.keys(expensesByCurrency).filter(c => expensesByCurrency[c].total_amount > 0);
+    if (currencies.length === 0) {
+      return formatCurrency(0);
+    }
+    
+    return currencies.map(currency => 
+      formatCurrency(expensesByCurrency[currency].total_amount, currency)
+    );
   };
 
   const filteredVendors = vendors.filter(v =>
@@ -234,13 +249,32 @@ const Vendors = () => {
               </div>
 
               <div className="mt-4 pt-4 border-t border-gray-100">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-text-secondary">
-                    {vendor.expense_count || 0} gider
-                  </span>
-                  <span className="font-medium money">
-                    {formatCurrency(vendor.total_expense_amount || 0)}
-                  </span>
+                <div className="text-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-text-secondary">
+                      {vendor.expense_count || 0} gider
+                    </span>
+                  </div>
+                  {vendor.expenses_by_currency ? (
+                    <div className="space-y-1">
+                      {Object.keys(vendor.expenses_by_currency)
+                        .filter(c => vendor.expenses_by_currency[c].total_amount > 0)
+                        .map(currency => (
+                          <div key={currency} className="font-medium money text-right">
+                            {formatCurrency(vendor.expenses_by_currency[currency].total_amount, currency)}
+                          </div>
+                        ))}
+                      {Object.keys(vendor.expenses_by_currency).filter(c => vendor.expenses_by_currency[c].total_amount > 0).length === 0 && (
+                        <div className="font-medium money text-right">
+                          {formatCurrency(0)}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="font-medium money text-right">
+                      {formatCurrency(vendor.total_expense_amount || 0)}
+                    </div>
+                  )}
                 </div>
               </div>
 

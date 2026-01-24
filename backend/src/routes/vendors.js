@@ -26,10 +26,39 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
             ORDER BY v.name ASC
         `);
 
+        // Get expense amounts by currency for each vendor
+        const vendorIds = result.rows.map(v => v.vendor_id);
+        const expensesByCurrency = await query(`
+            SELECT 
+                vendor_id,
+                currency,
+                COUNT(*) as count,
+                COALESCE(SUM(amount), 0) as total_amount
+            FROM expenses
+            WHERE vendor_id = ANY($1)
+            GROUP BY vendor_id, currency
+        `, [vendorIds]);
+
+        // Map expenses by currency to vendors
+        const vendorsWithCurrency = result.rows.map(vendor => {
+            const currencyExpenses = expensesByCurrency.rows.filter(e => e.vendor_id === vendor.vendor_id);
+            const byCurrency = {};
+            currencyExpenses.forEach(exp => {
+                byCurrency[exp.currency] = {
+                    count: parseInt(exp.count),
+                    total_amount: parseFloat(exp.total_amount)
+                };
+            });
+            return {
+                ...vendor,
+                expenses_by_currency: byCurrency
+            };
+        });
+
         res.json({
             success: true,
             data: {
-                vendors: result.rows
+                vendors: vendorsWithCurrency
             }
         });
     } catch (error) {
