@@ -166,26 +166,28 @@ const Transfers = () => {
 
       {/* Filters */}
       <div className="card">
-        <div className="flex items-center gap-4">
-          <Filter className="w-5 h-5 text-text-secondary" />
-          <div className="flex gap-2">
-            {['', 'PENDING', 'APPROVED', 'REJECTED'].map(status => (
-              <button
-                key={status || 'all'}
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                  statusFilter === status
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-text hover:bg-gray-200'
-                }`}
-              >
-                {status === '' ? 'Tümü' :
-                 status === 'PENDING' ? 'Bekleyen' :
-                 status === 'APPROVED' ? 'Onaylanan' : 'Reddedilen'}
-              </button>
-            ))}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <Filter className="w-5 h-5 text-text-secondary flex-shrink-0" />
+            <div className="flex gap-2 flex-wrap">
+              {['', 'PENDING', 'APPROVED', 'REJECTED'].map(status => (
+                <button
+                  key={status || 'all'}
+                  onClick={() => setStatusFilter(status)}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                    statusFilter === status
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-text hover:bg-gray-200'
+                  }`}
+                >
+                  {status === '' ? 'Tümü' :
+                   status === 'PENDING' ? 'Bekleyen' :
+                   status === 'APPROVED' ? 'Onaylanan' : 'Reddedilen'}
+                </button>
+              ))}
+            </div>
           </div>
-          <span className="text-sm text-text-secondary ml-auto">
+          <span className="text-sm text-text-secondary sm:ml-auto sm:flex-shrink-0">
             Toplam: {pagination.total} transfer
           </span>
         </div>
