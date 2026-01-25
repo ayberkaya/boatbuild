@@ -12,7 +12,6 @@ import {
   Trash2,
   AlertTriangle,
   Search,
-  FileText,
   X,
 } from 'lucide-react';
 
@@ -231,12 +230,6 @@ const Vendors = () => {
                     <p className="text-sm text-text-secondary">VKN: {vendor.tax_number}</p>
                   )}
                 </div>
-                {vendor.requires_documentation && (
-                  <span className="badge badge-warning">
-                    <FileText className="w-3 h-3 mr-1" />
-                    Belge Gerekli
-                  </span>
-                )}
               </div>
 
               <div className="space-y-2 text-sm">

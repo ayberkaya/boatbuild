@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { documentsAPI } from '../api/client';
+import { documentsAPI, expensesAPI, vendorsAPI } from '../api/client';
 import {
   FileText,
   Upload,
@@ -34,6 +34,13 @@ const Documents = () => {
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [expenses, setExpenses] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [selectedExpenseId, setSelectedExpenseId] = useState('');
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [documentDescription, setDocumentDescription] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -77,10 +84,35 @@ const Documents = () => {
   useEffect(() => {
     if (activeTab === 'contracts') {
       setTypeFilter('CONTRACT');
-    } else if (activeTab === 'all') {
-      setTypeFilter('');
+    } else if (activeTab === 'invoices') {
+      setTypeFilter('INVOICE');
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (showUploadModal) {
+      fetchExpenses();
+      fetchVendors();
+    }
+  }, [showUploadModal]);
+
+  const fetchExpenses = async () => {
+    try {
+      const response = await expensesAPI.list({ limit: 100 });
+      setExpenses(response.data.data.expenses);
+    } catch (error) {
+      console.error('Failed to fetch expenses:', error);
+    }
+  };
+
+  const fetchVendors = async () => {
+    try {
+      const response = await vendorsAPI.list();
+      setVendors(response.data.data.vendors);
+    } catch (error) {
+      console.error('Failed to fetch vendors:', error);
+    }
+  };
 
   const handleDownload = async (doc) => {
     try {
@@ -171,6 +203,79 @@ const Documents = () => {
     }).format(amount);
   };
 
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      alert('Lütfen dosya seçiniz');
+      return;
+    }
+
+    // For contracts, require either expense_id or vendor_id
+    if (activeTab === 'contracts' && !selectedExpenseId && !selectedVendorId) {
+      alert('Lütfen gider veya tedarikçi seçiniz');
+      return;
+    }
+
+    // For invoices, require expense_id
+    if (activeTab === 'invoices' && !selectedExpenseId) {
+      alert('Lütfen gider seçiniz');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      if (selectedExpenseId) {
+        formData.append('expense_id', selectedExpenseId);
+      }
+      if (selectedVendorId) {
+        formData.append('vendor_id', selectedVendorId);
+      }
+      formData.append('document_type', activeTab === 'contracts' ? 'CONTRACT' : 'INVOICE');
+      if (documentDescription) {
+        formData.append('description', documentDescription);
+      }
+
+      const response = await documentsAPI.upload(formData);
+      
+      // Refresh documents list
+      await fetchData();
+      
+      // Close modal and reset
+      closeUploadModal();
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('Belge yüklenemedi: ' + (error.response?.data?.error || 'Bilinmeyen hata'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const openUploadModal = () => {
+    setShowUploadModal(true);
+    setSelectedFile(null);
+    setSelectedExpenseId('');
+    setSelectedVendorId('');
+    setDocumentDescription('');
+  };
+
+  const closeUploadModal = () => {
+    setShowUploadModal(false);
+    setSelectedFile(null);
+    setSelectedExpenseId('');
+    setSelectedVendorId('');
+    setDocumentDescription('');
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) fileInput.value = '';
+  };
+
   const filteredDocuments = documents.filter(doc =>
     doc.file_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     doc.expense_vendor?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -223,9 +328,9 @@ const Documents = () => {
       {/* Contracts Tab */}
       {activeTab === 'contracts' && (
         <>
-          {/* Filters */}
+          {/* Filters and Upload */}
           <div className="card">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
@@ -236,6 +341,13 @@ const Documents = () => {
                   placeholder="Sözleşme ara..."
                 />
               </div>
+              <button
+                onClick={openUploadModal}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Sözleşme Ekle
+              </button>
             </div>
           </div>
 
@@ -259,7 +371,6 @@ const Documents = () => {
                     <th>Belge</th>
                     <th>Tür</th>
                     <th>İlişkili Gider</th>
-                    <th>Boyut</th>
                     <th>Yüklenme Tarihi</th>
                     <th></th>
                   </tr>
@@ -275,7 +386,6 @@ const Documents = () => {
                               <FileIcon className="w-5 h-5 text-text-secondary" />
                             </div>
                             <div>
-                              <p className="font-medium text-sm truncate max-w-xs">{doc.file_name}</p>
                               <p className="text-xs text-text-muted">{doc.uploaded_by_name}</p>
                             </div>
                           </div>
@@ -295,7 +405,6 @@ const Documents = () => {
                             <span className="text-text-muted">-</span>
                           )}
                         </td>
-                        <td className="text-sm text-text-secondary">{formatFileSize(doc.file_size)}</td>
                         <td className="text-sm text-text-secondary">{formatDate(doc.uploaded_at)}</td>
                         <td>
                           <div className="flex items-center gap-1">
@@ -339,9 +448,9 @@ const Documents = () => {
       {/* Invoices/Receipts Tab */}
       {activeTab === 'invoices' && (
         <>
-          {/* Filters */}
+          {/* Filters and Upload */}
           <div className="card">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
@@ -352,6 +461,13 @@ const Documents = () => {
                   placeholder="Fiş/Fatura ara..."
                 />
               </div>
+              <button
+                onClick={openUploadModal}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Fiş/Fatura Ekle
+              </button>
             </div>
           </div>
 
@@ -375,7 +491,6 @@ const Documents = () => {
                     <th>Belge</th>
                     <th>Tür</th>
                     <th>İlişkili Gider</th>
-                    <th>Boyut</th>
                     <th>Yüklenme Tarihi</th>
                     <th></th>
                   </tr>
@@ -391,7 +506,6 @@ const Documents = () => {
                               <FileIcon className="w-5 h-5 text-text-secondary" />
                             </div>
                             <div>
-                              <p className="font-medium text-sm truncate max-w-xs">{doc.file_name}</p>
                               <p className="text-xs text-text-muted">{doc.uploaded_by_name}</p>
                             </div>
                           </div>
@@ -411,7 +525,6 @@ const Documents = () => {
                             <span className="text-text-muted">-</span>
                           )}
                         </td>
-                        <td className="text-sm text-text-secondary">{formatFileSize(doc.file_size)}</td>
                         <td className="text-sm text-text-secondary">{formatDate(doc.uploaded_at)}</td>
                         <td>
                           <div className="flex items-center gap-1">
@@ -520,8 +633,143 @@ const Documents = () => {
         </div>
       )}
 
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-modal max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-text">
+                {activeTab === 'contracts' ? 'Sözleşme Ekle' : 'Fiş/Fatura Ekle'}
+              </h3>
+              <button
+                onClick={closeUploadModal}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {activeTab === 'contracts' && (
+                <>
+                  <div>
+                    <label className="label">Tedarikçi Seçin</label>
+                    <select
+                      value={selectedVendorId}
+                      onChange={(e) => setSelectedVendorId(e.target.value)}
+                      className="select"
+                    >
+                      <option value="">Tedarikçi seçiniz (opsiyonel)</option>
+                      {vendors.map(vendor => (
+                        <option key={vendor.vendor_id} value={vendor.vendor_id}>
+                          {vendor.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Gider Seçin</label>
+                    <select
+                      value={selectedExpenseId}
+                      onChange={(e) => setSelectedExpenseId(e.target.value)}
+                      className="select"
+                    >
+                      <option value="">Gider seçiniz (opsiyonel)</option>
+                      {expenses.map(expense => (
+                        <option key={expense.expense_id} value={expense.expense_id}>
+                          {new Date(expense.date).toLocaleDateString('tr-TR')} - {expense.vendor_name} - {expense.amount} {expense.currency}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-text-muted mt-1">
+                      Tedarikçi veya gider seçimi yapılmalıdır
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Sözleşme İçeriği/Açıklama</label>
+                    <textarea
+                      value={documentDescription}
+                      onChange={(e) => setDocumentDescription(e.target.value)}
+                      className="input"
+                      rows={3}
+                      placeholder="Sözleşmenin ne ile ve kimle ilgili olduğunu açıklayın..."
+                    />
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'invoices' && (
+                <div>
+                  <label className="label">Gider Seçin *</label>
+                  <select
+                    value={selectedExpenseId}
+                    onChange={(e) => setSelectedExpenseId(e.target.value)}
+                    className="select"
+                  >
+                    <option value="">Gider seçiniz</option>
+                    {expenses.map(expense => (
+                      <option key={expense.expense_id} value={expense.expense_id}>
+                        {new Date(expense.date).toLocaleDateString('tr-TR')} - {expense.vendor_name} - {expense.amount} {expense.currency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="label">Dosya Seçin *</label>
+                <label className="btn-outline cursor-pointer inline-flex items-center w-full justify-center">
+                  <Upload className="w-4 h-4 mr-2" />
+                  {selectedFile ? selectedFile.name : 'Dosya Seç'}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                    onChange={handleFileSelect}
+                  />
+                </label>
+                {selectedFile && (
+                  <p className="text-sm text-text-secondary mt-2">
+                    Seçilen: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={closeUploadModal}
+                  className="btn-ghost"
+                  disabled={uploading}
+                >
+                  İptal
+                </button>
+                <button
+                  onClick={handleUpload}
+                  className="btn-primary"
+                  disabled={
+                    uploading || 
+                    !selectedFile || 
+                    (activeTab === 'invoices' && !selectedExpenseId) ||
+                    (activeTab === 'contracts' && !selectedExpenseId && !selectedVendorId)
+                  }
+                >
+                  {uploading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                      Yükleniyor...
+                    </span>
+                  ) : (
+                    'Yükle'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Belge</p>
           <p className="text-xl font-bold text-primary">{allDocuments.length}</p>
@@ -537,10 +785,6 @@ const Documents = () => {
           <p className="text-xl font-bold text-text">
             {allDocuments.filter(d => d.document_type === 'CONTRACT').length}
           </p>
-        </div>
-        <div className="card border-danger/20 bg-danger-50">
-          <p className="text-sm text-danger">Eksik Belgeler</p>
-          <p className="text-xl font-bold text-danger">{missingDocs.length}</p>
         </div>
       </div>
     </div>
