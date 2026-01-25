@@ -124,12 +124,12 @@ const Overrides = () => {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
         {['PENDING', 'APPROVED', 'REJECTED', ''].map(status => (
           <button
             key={status || 'all'}
             onClick={() => setFilter(status)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors flex-shrink-0 whitespace-nowrap ${
               filter === status
                 ? 'bg-primary text-white'
                 : 'bg-gray-100 text-text hover:bg-gray-200'
