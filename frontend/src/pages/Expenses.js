@@ -95,6 +95,16 @@ const Expenses = () => {
     return styles[scope] || 'badge-secondary';
   };
 
+  const getWorkScopeLabel = (scope) => {
+    const labels = {
+      PURE_IMALAT: 'Saf İmalat',
+      MALZEME_PLUS_IMALAT: 'Malzeme + İmalat',
+      PURE_MALZEME: 'Saf Malzeme',
+      NON_IMALAT: 'İmalat Dışı',
+    };
+    return labels[scope] || scope;
+  };
+
   const getHakEdisStatus = (expense) => {
     if (expense.is_hak_edis_eligible) {
       return { icon: CheckCircle, class: 'text-success', label: 'Uygun' };
@@ -263,7 +273,7 @@ const Expenses = () => {
                         </td>
                         <td>
                           <span className={`badge ${getWorkScopeBadge(expense.work_scope_level)}`}>
-                            {expense.work_scope_level}
+                            {getWorkScopeLabel(expense.work_scope_level)}
                           </span>
                         </td>
                         <td className="text-right money font-medium">
