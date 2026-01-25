@@ -41,6 +41,7 @@ const Documents = () => {
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [documentDescription, setDocumentDescription] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -129,15 +130,25 @@ const Documents = () => {
     }
   };
 
-  const handleDelete = async (docId) => {
-    if (!window.confirm('Bu belgeyi silmek istediğinizden emin misiniz?')) return;
+  const handleDelete = (docId) => {
+    setDeleteConfirm(docId);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
 
     try {
-      await documentsAPI.delete(docId);
+      await documentsAPI.delete(deleteConfirm);
       fetchData();
+      setDeleteConfirm(null);
     } catch (error) {
       console.error('Delete failed:', error);
+      alert('Belge silinemedi: ' + (error.response?.data?.error || 'Bilinmeyen hata'));
     }
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirm(null);
   };
 
   const handlePreview = async (doc) => {
@@ -368,27 +379,22 @@ const Documents = () => {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Belge</th>
+                    <th>Ekleyen</th>
                     <th>Tür</th>
                     <th>İlişkili Gider</th>
                     <th>Yüklenme Tarihi</th>
-                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredDocuments.map((doc) => {
-                    const FileIcon = getFileIcon(doc.mime_type);
                     return (
-                      <tr key={doc.document_id}>
+                      <tr 
+                        key={doc.document_id}
+                        onClick={() => handlePreview(doc)}
+                        className="cursor-pointer hover:bg-gray-50"
+                      >
                         <td>
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-gray-100 rounded-lg">
-                              <FileIcon className="w-5 h-5 text-text-secondary" />
-                            </div>
-                            <div>
-                              <p className="text-xs text-text-muted">{doc.uploaded_by_name}</p>
-                            </div>
-                          </div>
+                          <p className="text-sm text-text">{doc.uploaded_by_name || '-'}</p>
                         </td>
                         <td>
                           <span className="badge badge-secondary">{doc.document_type}</span>
@@ -406,35 +412,6 @@ const Documents = () => {
                           )}
                         </td>
                         <td className="text-sm text-text-secondary">{formatDate(doc.uploaded_at)}</td>
-                        <td>
-                          <div className="flex items-center gap-1">
-                            {canPreview(doc.mime_type) && (
-                              <button
-                                onClick={() => handlePreview(doc)}
-                                className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
-                                title="Önizle"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDownload(doc)}
-                              className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
-                              title="İndir"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                            {isOwner && (
-                              <button
-                                onClick={() => handleDelete(doc.document_id)}
-                                className="p-2 hover:bg-danger-50 rounded-lg text-danger"
-                                title="Sil"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
                       </tr>
                     );
                   })}
@@ -488,27 +465,22 @@ const Documents = () => {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Belge</th>
+                    <th>Ekleyen</th>
                     <th>Tür</th>
                     <th>İlişkili Gider</th>
                     <th>Yüklenme Tarihi</th>
-                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredDocuments.map((doc) => {
-                    const FileIcon = getFileIcon(doc.mime_type);
                     return (
-                      <tr key={doc.document_id}>
+                      <tr 
+                        key={doc.document_id}
+                        onClick={() => handlePreview(doc)}
+                        className="cursor-pointer hover:bg-gray-50"
+                      >
                         <td>
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-gray-100 rounded-lg">
-                              <FileIcon className="w-5 h-5 text-text-secondary" />
-                            </div>
-                            <div>
-                              <p className="text-xs text-text-muted">{doc.uploaded_by_name}</p>
-                            </div>
-                          </div>
+                          <p className="text-sm text-text">{doc.uploaded_by_name || '-'}</p>
                         </td>
                         <td>
                           <span className="badge badge-secondary">{doc.document_type}</span>
@@ -526,35 +498,6 @@ const Documents = () => {
                           )}
                         </td>
                         <td className="text-sm text-text-secondary">{formatDate(doc.uploaded_at)}</td>
-                        <td>
-                          <div className="flex items-center gap-1">
-                            {canPreview(doc.mime_type) && (
-                              <button
-                                onClick={() => handlePreview(doc)}
-                                className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
-                                title="Önizle"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDownload(doc)}
-                              className="p-2 hover:bg-gray-100 rounded-lg text-text-secondary"
-                              title="İndir"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                            {isOwner && (
-                              <button
-                                onClick={() => handleDelete(doc.document_id)}
-                                className="p-2 hover:bg-danger-50 rounded-lg text-danger"
-                                title="Sil"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
                       </tr>
                     );
                   })}
@@ -571,13 +514,22 @@ const Documents = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={closePreview}>
           <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-lg">{previewDoc.file_name}</h3>
-                <p className="text-sm text-text-secondary">{previewDoc.document_type}</p>
+                <p className="text-sm text-text-secondary mb-2">{previewDoc.document_type}</p>
+                {previewDoc.expense_vendor && (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                    <p className="text-sm font-medium text-text mb-1">İlişkili Gider</p>
+                    <p className="text-sm text-text">{previewDoc.expense_vendor}</p>
+                    <p className="text-sm text-text-secondary money mt-1">
+                      {formatCurrency(previewDoc.expense_amount, previewDoc.expense_currency)}
+                    </p>
+                  </div>
+                )}
               </div>
               <button
                 onClick={closePreview}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+                className="p-2 hover:bg-gray-100 rounded-lg ml-4"
                 title="Kapat"
               >
                 <X className="w-5 h-5" />
@@ -622,6 +574,19 @@ const Documents = () => {
                 <Download className="w-4 h-4 mr-2" />
                 İndir
               </button>
+              {isOwner && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closePreview();
+                    handleDelete(previewDoc.document_id);
+                  }}
+                  className="btn-danger"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Sil
+                </button>
+              )}
               <button
                 onClick={closePreview}
                 className="btn-primary"
@@ -763,6 +728,43 @@ const Documents = () => {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-modal max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-danger-50 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-danger" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-text">Belgeyi Sil</h3>
+                <p className="text-sm text-text-secondary">Bu işlem geri alınamaz</p>
+              </div>
+            </div>
+            
+            <p className="text-text mb-6">
+              Bu belgeyi silmek istediğinizden emin misiniz?
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={cancelDelete}
+                className="btn-ghost"
+              >
+                İptal
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="btn-danger"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Sil
+              </button>
             </div>
           </div>
         </div>
