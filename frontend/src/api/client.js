@@ -30,11 +30,26 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Network error (backend not reachable)
+    if (!error.response) {
+      console.error('[API] Network error:', error.message);
+      error.response = {
+        data: {
+          error: 'Backend server is not reachable. Please check if the server is running.',
+          networkError: true
+        },
+        status: 0
+      };
+    }
+
     if (error.response?.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Don't redirect if we're already on login page
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

@@ -22,8 +22,42 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
+// CORS: Allow localhost and local network IPs in development
+const corsOrigin = process.env.CORS_ORIGIN;
+const allowedOrigins = corsOrigin 
+    ? corsOrigin.split(',').map(o => o.trim())
+    : process.env.NODE_ENV === 'production'
+        ? ['http://localhost:3000']
+        : [
+            'http://localhost:3000',
+            /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  // 192.168.x.x:port
+            /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,   // 10.x.x.x:port
+            /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:\d+$/  // 172.16-31.x.x:port
+        ];
+
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Check if origin matches allowed patterns
+        const isAllowed = allowedOrigins.some(allowed => {
+            if (typeof allowed === 'string') {
+                return origin === allowed;
+            }
+            if (allowed instanceof RegExp) {
+                return allowed.test(origin);
+            }
+            return false;
+        });
+        
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            console.warn('[CORS] Blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
 app.use(express.json());
@@ -94,15 +128,33 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Get local network IP for display
+const os = require('os');
+const getLocalIP = () => {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return 'localhost';
+};
+
+const HOST = process.env.HOST || '0.0.0.0';
+const localIP = getLocalIP();
+
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                    BoatBuild CRM Server                       ║
 ║                                                              ║
 ║  Environment: ${(process.env.NODE_ENV || 'development').padEnd(43)}║
 ║  Port: ${PORT.toString().padEnd(51)}║
-║  API Base: http://localhost:${PORT}/api                        ║
+║  Local: http://localhost:${PORT}/api                          ║
+║  Network: http://${localIP}:${PORT}/api${' '.repeat(Math.max(0, 30 - localIP.length - PORT.toString().length))}║
 ║                                                              ║
 ║  Endpoints:                                                  ║
 ║  - /api/auth       Authentication                            ║

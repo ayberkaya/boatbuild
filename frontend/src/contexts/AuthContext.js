@@ -57,7 +57,18 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (err) {
-      const errorMessage = err.response?.data?.error || 'Login failed';
+      console.error('[Auth] Login error:', err);
+      
+      // Better error messages
+      let errorMessage = 'Login failed';
+      if (err.response?.data?.networkError || !err.response) {
+        errorMessage = 'Backend server is not reachable. Please check if the server is running on port 3001.';
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
       setError(errorMessage);
       return { success: false, error: errorMessage };
     }

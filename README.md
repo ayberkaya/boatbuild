@@ -103,6 +103,48 @@ npm install
 npm start
 ```
 
+### Local Network Access (Testing)
+
+To make the app accessible to other devices on the same WiFi network:
+
+1. **Get your local IP address:**
+   ```bash
+   node get-local-ip.js
+   ```
+   This will show your network IP (e.g., `192.168.1.100`)
+
+2. **Backend is already configured** to listen on all interfaces (`0.0.0.0`)
+
+3. **Configure Frontend:**
+   ```bash
+   cd frontend
+   # Create or edit .env file
+   cat > .env << EOF
+   REACT_APP_API_URL=http://YOUR_IP:3001/api
+   HOST=0.0.0.0
+   EOF
+   # Replace YOUR_IP with the IP from step 1 (e.g., 192.168.1.100)
+   ```
+
+4. **Start both servers:**
+   ```bash
+   # From project root - starts both backend and frontend
+   npm run dev
+   
+   # Or start separately:
+   npm run dev:backend   # Terminal 1
+   npm run dev:frontend  # Terminal 2
+   ```
+
+5. **Access from other devices:**
+   - Open browser on any device on the same network
+   - Navigate to: `http://YOUR_IP:3000`
+   - Backend API will be at: `http://YOUR_IP:3001/api`
+
+**Note:** 
+- Make sure your firewall allows connections on ports 3000 and 3001
+- On macOS, you may need to allow incoming connections in System Preferences > Security & Privacy > Firewall
+
 ### Default Credentials
 
 | Role | Email | Password |
