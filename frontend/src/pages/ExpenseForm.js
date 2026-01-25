@@ -21,16 +21,16 @@ import {
 } from 'lucide-react';
 
 const WORK_SCOPE_LEVELS = [
-  { value: 'PURE_IMALAT', label: 'PURE_IMALAT - Saf İmalat', description: 'Her zaman %7 hak ediş' },
-  { value: 'MALZEME_PLUS_IMALAT', label: 'MALZEME_PLUS_IMALAT - Malzeme + İmalat', description: 'Politikaya bağlı' },
-  { value: 'PURE_MALZEME', label: 'PURE_MALZEME - Saf Malzeme', description: 'Asla hak ediş yok' },
-  { value: 'NON_IMALAT', label: 'NON_IMALAT - İmalat Dışı', description: 'Asla hak ediş yok' },
+  { value: 'PURE_IMALAT', label: 'Saf İmalat', description: 'Her zaman %7 hak ediş' },
+  { value: 'MALZEME_PLUS_IMALAT', label: 'Malzeme + İmalat', description: 'Politikaya bağlı' },
+  { value: 'PURE_MALZEME', label: 'Saf Malzeme', description: 'Asla hak ediş yok' },
+  { value: 'NON_IMALAT', label: 'İmalat Dışı', description: 'Asla hak ediş yok' },
 ];
 
 const HAK_EDIS_POLICIES = [
-  { value: 'ALWAYS_INCLUDED', label: 'ALWAYS_INCLUDED - Her Zaman Dahil', description: '%7 otomatik' },
-  { value: 'ALWAYS_EXCLUDED', label: 'ALWAYS_EXCLUDED - Her Zaman Hariç', description: 'Hak ediş yok' },
-  { value: 'CONDITIONAL', label: 'CONDITIONAL - Koşullu', description: 'Sahip onayı gerekli' },
+  { value: 'ALWAYS_INCLUDED', label: 'Her Zaman Dahil', description: '%7 otomatik' },
+  { value: 'ALWAYS_EXCLUDED', label: 'Her Zaman Hariç', description: 'Hak ediş yok' },
+  { value: 'CONDITIONAL', label: 'Koşullu', description: 'Sahip onayı gerekli' },
 ];
 
 const ExpenseForm = () => {
@@ -46,6 +46,7 @@ const ExpenseForm = () => {
   const [categories, setCategories] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
+  const [pendingContractFiles, setPendingContractFiles] = useState([]);
   const [errors, setErrors] = useState({});
 
   const [formData, setFormData] = useState({
@@ -88,8 +89,13 @@ const ExpenseForm = () => {
           URL.revokeObjectURL(file.preview);
         }
       });
+      pendingContractFiles.forEach(file => {
+        if (file.preview) {
+          URL.revokeObjectURL(file.preview);
+        }
+      });
     };
-  }, [pendingFiles]);
+  }, [pendingFiles, pendingContractFiles]);
 
   const fetchInitialData = async () => {
     try {
@@ -176,10 +182,12 @@ const ExpenseForm = () => {
   // Check documentation requirement
   useEffect(() => {
     checkDocumentationRequired();
-  }, [formData.work_scope_level, formData.primary_tag, formData.vendor_name]);
+  }, [formData.work_scope_level, formData.primary_tag, formData.vendor_id, vendors]);
 
   const checkDocumentationRequired = () => {
-    const { work_scope_level, primary_tag, vendor_name } = formData;
+    const { work_scope_level, primary_tag, vendor_id } = formData;
+    const vendor = vendors.find(v => v.vendor_id === vendor_id);
+    const vendor_name = vendor ? vendor.name : '';
     const specialVendors = ['BARAN', 'MOTOR', 'ETKIN'];
 
     let required = false;
@@ -191,7 +199,7 @@ const ExpenseForm = () => {
     } else if (primary_tag === 'REKLAM') {
       required = true;
       reason = 'Reklam giderleri belge gerektirir';
-    } else if (specialVendors.some(sv => vendor_name.toUpperCase().includes(sv))) {
+    } else if (vendor_name && specialVendors.some(sv => vendor_name.toUpperCase().includes(sv))) {
       required = true;
       reason = `${vendor_name} tedarikçisi için belge zorunludur`;
     }
@@ -221,15 +229,16 @@ const ExpenseForm = () => {
     setFormData(prev => ({
       ...prev,
       vendor_id: vendorId,
-      vendor_name: vendor ? vendor.name : prev.vendor_name,
+      vendor_name: vendor ? vendor.name : '',
     }));
+    setErrors(prev => ({ ...prev, vendor_id: null }));
   };
 
   const validateForm = () => {
     const newErrors = {};
 
     if (!formData.date) newErrors.date = 'Tarih zorunludur';
-    if (!formData.vendor_name) newErrors.vendor_name = 'Tedarikçi adı zorunludur';
+    if (!formData.vendor_id) newErrors.vendor_id = 'Tedarikçi seçimi zorunludur';
     if (!formData.amount || parseFloat(formData.amount) <= 0) newErrors.amount = 'Geçerli bir tutar giriniz';
     if (!formData.primary_tag) newErrors.primary_tag = 'Etiket zorunludur';
     if (!formData.work_scope_level) newErrors.work_scope_level = 'İş kapsamı zorunludur';
@@ -276,6 +285,9 @@ const ExpenseForm = () => {
       // Upload pending files after expense is created/updated
       if (pendingFiles.length > 0) {
         await handleFileUpload(expenseId);
+      }
+      if (pendingContractFiles.length > 0) {
+        await handleContractFileUpload(expenseId);
       }
 
       navigate('/expenses');
@@ -419,6 +431,79 @@ const ExpenseForm = () => {
     }
   };
 
+  const handleContractFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    const newFiles = files.map(file => ({
+      file,
+      id: Date.now() + Math.random(),
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+    }));
+
+    setPendingContractFiles(prev => [...prev, ...newFiles]);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleRemovePendingContractFile = (fileId) => {
+    setPendingContractFiles(prev => {
+      const file = prev.find(f => f.id === fileId);
+      if (file?.preview) {
+        URL.revokeObjectURL(file.preview);
+      }
+      return prev.filter(f => f.id !== fileId);
+    });
+  };
+
+  const handleContractFileUpload = async (expenseId) => {
+    if (pendingContractFiles.length === 0) return;
+
+    const uploadPromises = pendingContractFiles.map(async (pendingFile) => {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', pendingFile.file);
+      formDataUpload.append('expense_id', expenseId);
+      formDataUpload.append('document_type', 'CONTRACT');
+
+      try {
+        const response = await documentsAPI.upload(formDataUpload);
+        return response.data.data.document;
+      } catch (error) {
+        console.error('Contract upload failed:', error);
+        throw error;
+      }
+    });
+
+    try {
+      const uploadedDocs = await Promise.all(uploadPromises);
+      setDocuments(prev => [...prev, ...uploadedDocs]);
+      setPendingContractFiles([]);
+    } catch (error) {
+      console.error('Some contract uploads failed:', error);
+      setErrors({ submit: 'Bazı sözleşmeler yüklenemedi' });
+    }
+  };
+
+  const handleContractFileUploadEdit = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formDataUpload = new FormData();
+    formDataUpload.append('file', file);
+    formDataUpload.append('expense_id', id);
+    formDataUpload.append('document_type', 'CONTRACT');
+
+    try {
+      const response = await documentsAPI.upload(formDataUpload);
+      setDocuments(prev => [...prev, response.data.data.document]);
+    } catch (error) {
+      console.error('Contract upload failed:', error);
+      setErrors({ submit: 'Sözleşme yüklenemedi' });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -491,31 +576,19 @@ const ExpenseForm = () => {
             </div>
 
             <div>
-              <label className="label">Tedarikçi</label>
+              <label className="label">Tedarikçi *</label>
               <select
                 name="vendor_id"
                 value={formData.vendor_id}
                 onChange={handleVendorSelect}
-                className="select"
+                className={`select ${errors.vendor_id ? 'input-error' : ''}`}
               >
-                <option value="">Seçiniz veya yeni girin</option>
+                <option value="">Seçiniz</option>
                 {vendors.map(v => (
                   <option key={v.vendor_id} value={v.vendor_id}>{v.name}</option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label className="label">Tedarikçi Adı *</label>
-              <input
-                type="text"
-                name="vendor_name"
-                value={formData.vendor_name}
-                onChange={handleInputChange}
-                className={`input ${errors.vendor_name ? 'input-error' : ''}`}
-                placeholder="Tedarikçi adını girin"
-              />
-              {errors.vendor_name && <p className="text-sm text-danger mt-1">{errors.vendor_name}</p>}
+              {errors.vendor_id && <p className="text-sm text-danger mt-1">{errors.vendor_id}</p>}
             </div>
 
             <div className="md:col-span-2">
@@ -736,9 +809,9 @@ const ExpenseForm = () => {
           )}
 
           {/* Existing Documents (for editing) */}
-          {isEditing && documents.length > 0 && (
+          {isEditing && documents.filter(doc => doc.document_type === 'INVOICE').length > 0 && (
             <div className="space-y-2 mb-4">
-              {documents.map(doc => (
+              {documents.filter(doc => doc.document_type === 'INVOICE').map(doc => (
                 <div key={doc.document_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <FileText className="w-5 h-5 text-text-secondary" />
@@ -779,9 +852,98 @@ const ExpenseForm = () => {
             />
           </label>
           {errors.documents && <p className="text-sm text-danger mt-2">{errors.documents}</p>}
-          {!isEditing && pendingFiles.length === 0 && documents.length === 0 && (
+          {!isEditing && pendingFiles.length === 0 && documents.filter(doc => doc.document_type === 'INVOICE').length === 0 && (
             <p className="text-text-muted text-sm mt-2">
               Fatura veya fiş görseli/belgesi yükleyebilirsiniz (PDF, resim, Word, Excel)
+            </p>
+          )}
+        </div>
+
+        {/* Contracts Section */}
+        <div className="card">
+          <h3 className="font-semibold text-text mb-4">Sözleşme Belgeleri</h3>
+          
+          {/* Pending Contract Files (for new expenses) */}
+          {!isEditing && pendingContractFiles.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm text-text-secondary mb-2">Yüklenecek sözleşmeler:</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pendingContractFiles.map(pendingFile => (
+                  <div key={pendingFile.id} className="border rounded-lg p-3 bg-gray-50 relative">
+                    {pendingFile.preview ? (
+                      <div className="mb-2">
+                        <img 
+                          src={pendingFile.preview} 
+                          alt={pendingFile.name}
+                          className="w-full h-32 object-cover rounded"
+                        />
+                      </div>
+                    ) : (
+                      <FileText className="w-8 h-8 text-text-secondary mb-2" />
+                    )}
+                    <p className="text-sm font-medium truncate">{pendingFile.name}</p>
+                    <p className="text-xs text-text-muted">
+                      {(pendingFile.size / 1024).toFixed(1)} KB
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePendingContractFile(pendingFile.id)}
+                      className="absolute top-2 right-2 p-1 text-danger hover:bg-danger-50 rounded"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Existing Contract Documents (for editing) */}
+          {isEditing && documents.filter(doc => doc.document_type === 'CONTRACT').length > 0 && (
+            <div className="space-y-2 mb-4">
+              {documents.filter(doc => doc.document_type === 'CONTRACT').map(doc => (
+                <div key={doc.document_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-text-secondary" />
+                    <div>
+                      <p className="font-medium text-sm">{doc.file_name}</p>
+                      <p className="text-xs text-text-muted">{doc.document_type}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await documentsAPI.delete(doc.document_id);
+                        setDocuments(prev => prev.filter(d => d.document_id !== doc.document_id));
+                      } catch (error) {
+                        console.error('Delete failed:', error);
+                      }
+                    }}
+                    className="p-2 text-danger hover:bg-danger-50 rounded-lg"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Upload Button */}
+          <label className="btn-outline cursor-pointer inline-flex items-center">
+            <Upload className="w-4 h-4 mr-2" />
+            {isEditing ? 'Sözleşme Yükle' : 'Sözleşme Ekle'}
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+              multiple={!isEditing}
+              onChange={isEditing ? handleContractFileUploadEdit : handleContractFileSelect}
+            />
+          </label>
+          {!isEditing && pendingContractFiles.length === 0 && documents.filter(doc => doc.document_type === 'CONTRACT').length === 0 && (
+            <p className="text-text-muted text-sm mt-2">
+              Sözleşme görseli/belgesi yükleyebilirsiniz (PDF, resim, Word, Excel)
             </p>
           )}
         </div>
