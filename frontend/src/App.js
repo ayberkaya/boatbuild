@@ -12,9 +12,9 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Expenses from './pages/Expenses';
 import ExpenseForm from './pages/ExpenseForm';
+import Hakedis from './pages/Hakedis';
 import Transfers from './pages/Transfers';
 import TransferForm from './pages/TransferForm';
-import Overrides from './pages/Overrides';
 import Vendors from './pages/Vendors';
 import Documents from './pages/Documents';
 
@@ -70,17 +70,10 @@ const AppRoutes = () => {
         <Route path="expenses" element={<Expenses />} />
         <Route path="expenses/new" element={<ExpenseForm />} />
         <Route path="expenses/:id" element={<ExpenseForm />} />
+        <Route path="hakedis" element={<Hakedis />} />
         <Route path="transfers" element={<Transfers />} />
         <Route path="transfers/new" element={<TransferForm />} />
         <Route path="transfers/:id" element={<TransferForm />} />
-        <Route
-          path="overrides"
-          element={
-            <ProtectedRoute ownerOnly>
-              <Overrides />
-            </ProtectedRoute>
-          }
-        />
         <Route path="vendors" element={<Vendors />} />
         <Route path="documents" element={<Documents />} />
       </Route>

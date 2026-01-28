@@ -10,7 +10,7 @@ import {
   LayoutDashboard,
   Receipt,
   ArrowLeftRight,
-  FileCheck,
+  Percent,
   Users,
   FileText,
   LogOut,
@@ -35,8 +35,8 @@ const Layout = () => {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/expenses', icon: Receipt, label: 'Giderler' },
+    { to: '/hakedis', icon: Percent, label: 'Hakediş' },
     { to: '/transfers', icon: ArrowLeftRight, label: 'Transferler' },
-    ...(isOwner ? [{ to: '/overrides', icon: FileCheck, label: 'Hak Ediş Onayları' }] : []),
     { to: '/vendors', icon: Users, label: 'Tedarikçiler' },
     { to: '/documents', icon: FileText, label: 'Belgeler' },
   ];

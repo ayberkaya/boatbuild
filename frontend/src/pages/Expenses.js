@@ -1,6 +1,7 @@
 /**
  * Expenses List Page
  * BoatBuild CRM - View and manage expenses
+ * Redesigned to match trideck_hesap_defteri.xlsx format
  */
 
 import React, { useState, useEffect } from 'react';
@@ -9,18 +10,79 @@ import { useAuth } from '../contexts/AuthContext';
 import { expensesAPI } from '../api/client';
 import {
   Plus,
-  Search,
   Filter,
-  Download,
   Eye,
   CheckCircle,
   XCircle,
-  Clock,
   ChevronLeft,
   ChevronRight,
   Trash2,
   AlertTriangle,
 } from 'lucide-react';
+
+// Başlık (Main Category) definitions with colors
+const BASLIKLAR = {
+  'İmalat': { color: 'bg-green-100 text-green-800', label: 'İmalat' },
+  'Yunanistan Kurulum': { color: 'bg-blue-100 text-blue-800', label: 'Yunanistan' },
+  'Tersane Kurulum': { color: 'bg-orange-100 text-orange-800', label: 'Tersane' },
+  'Reklam ve Tanıtım': { color: 'bg-yellow-100 text-yellow-800', label: 'Reklam' },
+  'Baran': { color: 'bg-purple-100 text-purple-800', label: 'Baran' },
+};
+
+// Map primary_tag to Başlık
+const getBaslikFromTag = (primaryTag) => {
+  if (!primaryTag) return { baslik: 'Diğer', kategori: '' };
+  
+  const tag = primaryTag.toUpperCase();
+  
+  if (tag.startsWith('IMALAT') || tag === 'MOTOR' || tag === 'KAAN_ODEME' || tag === 'ETKIN') {
+    const kategoriMap = {
+      'IMALAT_GENEL': 'Genel',
+      'IMALAT_TESISAT': 'Tesisat',
+      'IMALAT_ELEKTRIK': 'Elektrik',
+      'IMALAT_ALUMINYUM': 'Alüminyum',
+      'MOTOR': 'Motorlar',
+      'KAAN_ODEME': 'Kaan Ödeme',
+      'ETKIN': 'Etkin Gürel',
+    };
+    return { baslik: 'İmalat', kategori: kategoriMap[tag] || 'Genel' };
+  }
+  
+  if (tag.startsWith('YUNANISTAN')) {
+    const kategoriMap = {
+      'YUNANISTAN_AVUKAT': 'Avukat',
+      'YUNANISTAN_DEPOSIT': 'Deposit',
+      'YUNANISTAN_ROMORK': 'Römork',
+      'YUNANISTAN_SIGORTA': 'Sigorta',
+      'YUNANISTAN_GUMRUK': 'Gümrük',
+      'YUNANISTAN_LIMAN': 'Liman',
+      'YUNANISTAN_KAPTAN': 'Kaptan',
+      'YUNANISTAN_MAZOT': 'Mazot',
+      'YUNANISTAN_TRANSFER': 'Transfer',
+      'YUNANISTAN_SURVEY': 'Survey',
+    };
+    return { baslik: 'Yunanistan Kurulum', kategori: kategoriMap[tag] || 'Genel' };
+  }
+  
+  if (tag.startsWith('TERSANE')) {
+    const kategoriMap = {
+      'TERSANE_TENTE': 'Tente Kurulum',
+      'TERSANE_KIRALAMA': 'Tersane Kiralama',
+      'TERSANE_GENEL': 'Genel',
+    };
+    return { baslik: 'Tersane Kurulum', kategori: kategoriMap[tag] || 'Genel' };
+  }
+  
+  if (tag === 'REKLAM' || tag.startsWith('REKLAM')) {
+    return { baslik: 'Reklam ve Tanıtım', kategori: 'Genel' };
+  }
+  
+  if (tag === 'BARAN' || tag.startsWith('BARAN')) {
+    return { baslik: 'Baran', kategori: 'Genel' };
+  }
+  
+  return { baslik: 'Diğer', kategori: primaryTag };
+};
 
 const Expenses = () => {
   const navigate = useNavigate();
@@ -32,21 +94,27 @@ const Expenses = () => {
   const [filters, setFilters] = useState({
     start_date: searchParams.get('start_date') || '',
     end_date: searchParams.get('end_date') || '',
-    primary_tag: searchParams.get('primary_tag') || '',
-    work_scope_level: searchParams.get('work_scope_level') || '',
+    baslik: searchParams.get('baslik') || '',
     is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
   });
   const [showFilters, setShowFilters] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [totals, setTotals] = useState({
+    totalAmount: 0,
+    eligibleAmount: 0,
+    totalHakedis: 0,
+  });
 
-  // Update filters from URL params on mount
+  useEffect(() => {
+    fetchTotals();
+  }, []);
+
   useEffect(() => {
     const urlFilters = {
       start_date: searchParams.get('start_date') || '',
       end_date: searchParams.get('end_date') || '',
-      primary_tag: searchParams.get('primary_tag') || '',
-      work_scope_level: searchParams.get('work_scope_level') || '',
+      baslik: searchParams.get('baslik') || '',
       is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
     };
     setFilters(urlFilters);
@@ -56,14 +124,49 @@ const Expenses = () => {
     fetchExpenses();
   }, [pagination.page, filters]);
 
+  const fetchTotals = async () => {
+    try {
+      // Fetch all expenses to calculate system-wide totals
+      const response = await expensesAPI.list({ limit: 10000 });
+      const allExpenses = response.data.data.expenses;
+      
+      const totalAmount = allExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+      const eligibleAmount = allExpenses
+        .filter(e => e.is_hak_edis_eligible)
+        .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+      const totalHakedis = allExpenses.reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0);
+      
+      setTotals({ totalAmount, eligibleAmount, totalHakedis });
+    } catch (error) {
+      console.error('Failed to fetch totals:', error);
+    }
+  };
+
   const fetchExpenses = async () => {
     try {
       setLoading(true);
       const params = {
         page: pagination.page,
         limit: pagination.limit,
-        ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== '')),
       };
+      
+      // Add date filters
+      if (filters.start_date) params.start_date = filters.start_date;
+      if (filters.end_date) params.end_date = filters.end_date;
+      if (filters.is_hak_edis_eligible) params.is_hak_edis_eligible = filters.is_hak_edis_eligible;
+      
+      // Map baslik filter to primary_tag prefix
+      if (filters.baslik) {
+        const baslikTagMap = {
+          'İmalat': 'IMALAT',
+          'Yunanistan Kurulum': 'YUNANISTAN',
+          'Tersane Kurulum': 'TERSANE',
+          'Reklam ve Tanıtım': 'REKLAM',
+          'Baran': 'BARAN',
+        };
+        params.primary_tag = baslikTagMap[filters.baslik] || '';
+      }
+      
       const response = await expensesAPI.list(params);
       setExpenses(response.data.data.expenses);
       setPagination(prev => ({ ...prev, ...response.data.data.pagination }));
@@ -74,45 +177,23 @@ const Expenses = () => {
     }
   };
 
-  const formatCurrency = (amount, currency = 'TRY') => {
+  const formatCurrency = (amount, currency = 'USD') => {
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
       currency: currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(amount);
   };
 
   const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('tr-TR');
   };
 
-  const getWorkScopeBadge = (scope) => {
-    const styles = {
-      PURE_IMALAT: 'badge-success',
-      MALZEME_PLUS_IMALAT: 'badge-warning',
-      PURE_MALZEME: 'badge-secondary',
-      NON_IMALAT: 'badge-danger',
-    };
-    return styles[scope] || 'badge-secondary';
-  };
-
-  const getWorkScopeLabel = (scope) => {
-    const labels = {
-      PURE_IMALAT: 'Saf İmalat',
-      MALZEME_PLUS_IMALAT: 'Malzeme + İmalat',
-      PURE_MALZEME: 'Saf Malzeme',
-      NON_IMALAT: 'İmalat Dışı',
-    };
-    return labels[scope] || scope;
-  };
-
-  const getHakEdisStatus = (expense) => {
-    if (expense.is_hak_edis_eligible) {
-      return { icon: CheckCircle, class: 'text-success', label: 'Uygun' };
-    }
-    if (expense.hak_edis_policy === 'CONDITIONAL' && !expense.has_owner_override) {
-      return { icon: Clock, class: 'text-warning', label: 'Onay Bekliyor' };
-    }
-    return { icon: XCircle, class: 'text-text-muted', label: 'Uygun Değil' };
+  const truncateText = (text, maxLength = 40) => {
+    if (!text) return '-';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
   const handleDeleteClick = (e, expense) => {
@@ -168,7 +249,7 @@ const Expenses = () => {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 pt-4 border-t border-gray-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-gray-100">
             <div>
               <label className="label">Başlangıç Tarihi</label>
               <input
@@ -188,43 +269,50 @@ const Expenses = () => {
               />
             </div>
             <div>
-              <label className="label">Etiket</label>
-              <input
-                type="text"
-                value={filters.primary_tag}
-                onChange={(e) => setFilters({ ...filters, primary_tag: e.target.value })}
-                className="input"
-                placeholder="KAYNAK, CAM, vb."
-              />
-            </div>
-            <div>
-              <label className="label">İş Kapsamı</label>
+              <label className="label">Başlık</label>
               <select
-                value={filters.work_scope_level}
-                onChange={(e) => setFilters({ ...filters, work_scope_level: e.target.value })}
+                value={filters.baslik}
+                onChange={(e) => setFilters({ ...filters, baslik: e.target.value })}
                 className="select"
               >
                 <option value="">Tümü</option>
-                <option value="PURE_IMALAT">PURE_IMALAT</option>
-                <option value="MALZEME_PLUS_IMALAT">MALZEME_PLUS_IMALAT</option>
-                <option value="PURE_MALZEME">PURE_MALZEME</option>
-                <option value="NON_IMALAT">NON_IMALAT</option>
+                <option value="İmalat">İmalat</option>
+                <option value="Yunanistan Kurulum">Yunanistan Kurulum</option>
+                <option value="Tersane Kurulum">Tersane Kurulum</option>
+                <option value="Reklam ve Tanıtım">Reklam ve Tanıtım</option>
+                <option value="Baran">Baran</option>
               </select>
             </div>
             <div>
-              <label className="label">Hak Ediş</label>
+              <label className="label">Kaan Hakediş</label>
               <select
                 value={filters.is_hak_edis_eligible}
                 onChange={(e) => setFilters({ ...filters, is_hak_edis_eligible: e.target.value })}
                 className="select"
               >
                 <option value="">Tümü</option>
-                <option value="true">Uygun</option>
-                <option value="false">Uygun Değil</option>
+                <option value="true">Evet</option>
+                <option value="false">Hayır</option>
               </select>
             </div>
           </div>
         )}
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="card">
+          <p className="text-sm text-text-secondary">Toplam Gider</p>
+          <p className="text-2xl font-bold text-primary">{formatCurrency(totals.totalAmount)}</p>
+        </div>
+        <div className="card">
+          <p className="text-sm text-text-secondary">Hakediş Matrahı</p>
+          <p className="text-2xl font-bold text-green-600">{formatCurrency(totals.eligibleAmount)}</p>
+        </div>
+        <div className="card">
+          <p className="text-sm text-text-secondary">Toplam Hakediş (%7)</p>
+          <p className="text-2xl font-bold text-blue-600">{formatCurrency(totals.totalHakedis)}</p>
+        </div>
       </div>
 
       {/* Expenses Table */}
@@ -248,47 +336,52 @@ const Expenses = () => {
                 <thead>
                   <tr>
                     <th>Tarih</th>
-                    <th>Tedarikçi</th>
-                    <th>Etiket</th>
-                    <th>İş Kapsamı</th>
+                    <th>Başlık</th>
+                    <th>Kategori</th>
                     <th className="text-right">Tutar</th>
-                    <th className="text-center">Hak Ediş</th>
-                    <th className="text-right">Hak Ediş Tutarı</th>
+                    <th>Kime</th>
+                    <th className="text-center">Kaan Hakediş</th>
+                    <th>Açıklama</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {expenses.map((expense) => {
-                    const hakEdisStatus = getHakEdisStatus(expense);
+                    const { baslik, kategori } = getBaslikFromTag(expense.primary_tag);
+                    const baslikStyle = BASLIKLAR[baslik] || { color: 'bg-gray-100 text-gray-800', label: baslik };
+                    
                     return (
                       <tr
                         key={expense.expense_id}
-                        className="cursor-pointer"
+                        className="cursor-pointer hover:bg-gray-50"
                         onClick={() => navigate(`/expenses/${expense.expense_id}`)}
                       >
-                        <td className="font-medium">{formatDate(expense.date)}</td>
-                        <td>{expense.vendor_name}</td>
-                        <td>
-                          <span className="badge badge-primary">{expense.primary_tag}</span>
+                        <td className="font-medium whitespace-nowrap">
+                          {formatDate(expense.date)}
                         </td>
                         <td>
-                          <span className={`badge ${getWorkScopeBadge(expense.work_scope_level)}`}>
-                            {getWorkScopeLabel(expense.work_scope_level)}
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${baslikStyle.color}`}>
+                            {baslikStyle.label}
                           </span>
                         </td>
-                        <td className="text-right money font-medium">
+                        <td className="text-text-secondary">
+                          {kategori || '-'}
+                        </td>
+                        <td className="text-right font-semibold whitespace-nowrap">
                           {formatCurrency(expense.amount, expense.currency)}
                         </td>
-                        <td className="text-center">
-                          <div className={`flex items-center justify-center gap-1 ${hakEdisStatus.class}`}>
-                            <hakEdisStatus.icon className="w-4 h-4" />
-                            <span className="text-sm">{hakEdisStatus.label}</span>
-                          </div>
+                        <td className="text-text-secondary">
+                          {expense.vendor_name || '-'}
                         </td>
-                        <td className={`text-right money ${expense.is_hak_edis_eligible ? 'text-success font-medium' : 'text-text-muted'}`}>
-                          {expense.is_hak_edis_eligible
-                            ? formatCurrency(expense.hak_edis_amount, expense.currency)
-                            : '-'}
+                        <td className="text-center">
+                          {expense.is_hak_edis_eligible ? (
+                            <CheckCircle className="w-5 h-5 text-green-500 mx-auto" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-gray-400 mx-auto" />
+                          )}
+                        </td>
+                        <td className="text-text-secondary text-sm max-w-xs">
+                          {truncateText(expense.description)}
                         </td>
                         <td>
                           <div className="flex items-center gap-1 justify-end">
@@ -305,7 +398,7 @@ const Expenses = () => {
                             {isOwner && (
                               <button
                                 onClick={(e) => handleDeleteClick(e, expense)}
-                                className="p-2 hover:bg-danger-50 rounded-lg text-danger"
+                                className="p-2 hover:bg-red-50 rounded-lg text-red-500"
                                 title="Gideri sil"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -346,86 +439,13 @@ const Expenses = () => {
         )}
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card">
-          <p className="text-sm text-text-secondary">Toplam Gider</p>
-          <div className="space-y-1">
-            {['TRY', 'USD', 'EUR'].map(currency => {
-              const total = expenses
-                .filter(e => e.currency === currency)
-                .reduce((sum, e) => sum + parseFloat(e.amount), 0);
-              if (total === 0) return null;
-              return (
-                <p key={currency} className="text-xl font-bold text-primary money">
-                  {formatCurrency(total, currency)}
-                </p>
-              );
-            })}
-            {['TRY', 'USD', 'EUR'].every(c => 
-              expenses.filter(e => e.currency === c).reduce((sum, e) => sum + parseFloat(e.amount), 0) === 0
-            ) && (
-              <p className="text-xl font-bold text-primary money">
-                {formatCurrency(0, 'TRY')}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="card">
-          <p className="text-sm text-text-secondary">Hak Edişli Gider</p>
-          <div className="space-y-1">
-            {['TRY', 'USD', 'EUR'].map(currency => {
-              const total = expenses
-                .filter(e => e.is_hak_edis_eligible && e.currency === currency)
-                .reduce((sum, e) => sum + parseFloat(e.amount), 0);
-              if (total === 0) return null;
-              return (
-                <p key={currency} className="text-xl font-bold text-success money">
-                  {formatCurrency(total, currency)}
-                </p>
-              );
-            })}
-            {['TRY', 'USD', 'EUR'].every(c => 
-              expenses.filter(e => e.is_hak_edis_eligible && e.currency === c).reduce((sum, e) => sum + parseFloat(e.amount), 0) === 0
-            ) && (
-              <p className="text-xl font-bold text-success money">
-                {formatCurrency(0, 'TRY')}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="card">
-          <p className="text-sm text-text-secondary">Toplam Hak Ediş</p>
-          <div className="space-y-1">
-            {['TRY', 'USD', 'EUR'].map(currency => {
-              const total = expenses
-                .filter(e => e.currency === currency)
-                .reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0);
-              if (total === 0) return null;
-              return (
-                <p key={currency} className="text-xl font-bold text-secondary money">
-                  {formatCurrency(total, currency)}
-                </p>
-              );
-            })}
-            {['TRY', 'USD', 'EUR'].every(c => 
-              expenses.filter(e => e.currency === c).reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0) === 0
-            ) && (
-              <p className="text-xl font-bold text-secondary money">
-                {formatCurrency(0, 'TRY')}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-modal max-w-md w-full p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-danger-50 rounded-lg">
-                <AlertTriangle className="w-6 h-6 text-danger" />
+              <div className="p-3 bg-red-50 rounded-lg">
+                <AlertTriangle className="w-6 h-6 text-red-500" />
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-text">Gideri Sil</h3>
@@ -439,14 +459,7 @@ const Expenses = () => {
               <p className="text-sm text-text-muted mt-1">
                 {formatDate(deleteConfirm.date)} • {formatCurrency(deleteConfirm.amount, deleteConfirm.currency)}
               </p>
-              <p className="text-sm text-text-muted">
-                Etiket: <span className="font-medium">{deleteConfirm.primary_tag}</span>
-              </p>
             </div>
-
-            <p className="text-sm text-text-secondary mb-4">
-              Bu gideri silmek istediğinizden emin misiniz? Bu işlem gideri, bağlı belgeleri ve uyarıları kalıcı olarak silecektir.
-            </p>
 
             <div className="flex justify-end gap-3">
               <button
@@ -461,7 +474,7 @@ const Expenses = () => {
                 type="button"
                 onClick={handleDeleteConfirm}
                 disabled={deleting}
-                className="btn-danger"
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium"
               >
                 {deleting ? (
                   <span className="flex items-center gap-2">
@@ -470,7 +483,7 @@ const Expenses = () => {
                   </span>
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="w-4 h-4 mr-2 inline" />
                     Sil
                   </>
                 )}

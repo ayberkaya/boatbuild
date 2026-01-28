@@ -132,6 +132,67 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
 });
 
 /**
+ * GET /api/expenses/hakedis-summary
+ * Get Kaan hakediş summary (base amount, total, paid, remaining)
+ * IMPORTANT: This must be defined BEFORE /:id route
+ */
+router.get('/hakedis-summary', authenticate, requireAuthenticated, async (req, res) => {
+    try {
+        // Get hakediş base amount (sum of expenses where is_hak_edis_eligible = true)
+        const baseResult = await query(`
+            SELECT COALESCE(SUM(amount), 0) as base_amount
+            FROM expenses
+            WHERE is_hak_edis_eligible = true
+        `);
+        
+        // Get total hak_edis_amount (sum of all hak_edis_amount)
+        const hakEdisResult = await query(`
+            SELECT COALESCE(SUM(hak_edis_amount), 0) as total_hakedis
+            FROM expenses
+        `);
+        
+        // Get paid amount (expenses with KAAN_ODEME tag)
+        const paidResult = await query(`
+            SELECT COALESCE(SUM(amount), 0) as paid_amount
+            FROM expenses
+            WHERE UPPER(primary_tag) = 'KAAN_ODEME'
+        `);
+        
+        // Get Kaan payment history
+        const paymentsResult = await query(`
+            SELECT expense_id, date, amount, description, vendor_name
+            FROM expenses
+            WHERE UPPER(primary_tag) = 'KAAN_ODEME'
+            ORDER BY date DESC
+        `);
+        
+        const baseAmount = parseFloat(baseResult.rows[0].base_amount) || 0;
+        const totalHakedis = parseFloat(hakEdisResult.rows[0].total_hakedis) || 0;
+        const paidAmount = parseFloat(paidResult.rows[0].paid_amount) || 0;
+        const remainingAmount = totalHakedis - paidAmount;
+        
+        res.json({
+            success: true,
+            data: {
+                summary: {
+                    baseAmount,
+                    totalHakedis,
+                    paidAmount,
+                    remainingAmount,
+                },
+                payments: paymentsResult.rows
+            }
+        });
+    } catch (error) {
+        console.error('[Expenses] Hakedis summary error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch hakediş summary'
+        });
+    }
+});
+
+/**
  * GET /api/expenses/:id
  * Get single expense with details
  */
@@ -465,11 +526,16 @@ router.delete('/:id', authenticate, requireOwner, async (req, res) => {
 
 /**
  * GET /api/expenses/categories/list
- * Get expense categories
+ * Get expense categories (deduplicated by name)
  */
 router.get('/categories/list', authenticate, requireAuthenticated, async (req, res) => {
     try {
-        const result = await query('SELECT * FROM expense_categories ORDER BY name');
+        // Use DISTINCT ON to deduplicate by name, keeping the first entry
+        const result = await query(`
+            SELECT DISTINCT ON (name) *
+            FROM expense_categories
+            ORDER BY name, category_id
+        `);
         res.json({
             success: true,
             data: {
@@ -481,6 +547,132 @@ router.get('/categories/list', authenticate, requireAuthenticated, async (req, r
         res.status(500).json({
             success: false,
             error: 'Failed to fetch categories'
+        });
+    }
+});
+
+/**
+ * POST /api/expenses/import
+ * Bulk import expenses from CSV data
+ * Owner only - imports multiple expenses at once
+ */
+router.post('/import', authenticate, requireOwner, async (req, res) => {
+    try {
+        const { expenses } = req.body;
+
+        if (!Array.isArray(expenses) || expenses.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'expenses array is required and must not be empty'
+            });
+        }
+
+        if (expenses.length > 500) {
+            return res.status(400).json({
+                success: false,
+                error: 'Maximum 500 expenses can be imported at once'
+            });
+        }
+
+        const results = {
+            imported: 0,
+            failed: 0,
+            errors: [],
+            expenses: []
+        };
+
+        // Process each expense within a transaction
+        await transaction(async (client) => {
+            for (let i = 0; i < expenses.length; i++) {
+                const exp = expenses[i];
+                
+                try {
+                    // Validate required fields
+                    if (!exp.date || !exp.vendor_name || !exp.amount || !exp.primary_tag || 
+                        !exp.work_scope_level || !exp.hak_edis_policy) {
+                        throw new Error(`Missing required fields at index ${i}`);
+                    }
+
+                    // Validate enums
+                    if (!Object.values(WORK_SCOPE_LEVEL).includes(exp.work_scope_level)) {
+                        throw new Error(`Invalid work_scope_level: ${exp.work_scope_level} at index ${i}`);
+                    }
+                    if (!Object.values(HAK_EDIS_POLICY).includes(exp.hak_edis_policy)) {
+                        throw new Error(`Invalid hak_edis_policy: ${exp.hak_edis_policy} at index ${i}`);
+                    }
+
+                    // Calculate hak ediş
+                    const hakEdisResult = calculateHakEdis({
+                        amount: parseFloat(exp.amount),
+                        work_scope_level: exp.work_scope_level,
+                        hak_edis_policy: exp.hak_edis_policy
+                    });
+
+                    // Use provided expense_id or generate new one
+                    const expense_id = exp.expense_id || uuidv4();
+
+                    // Handle is_hak_edis_eligible - use provided value or calculated
+                    const is_eligible = exp.is_hak_edis_eligible !== undefined 
+                        ? exp.is_hak_edis_eligible 
+                        : hakEdisResult.is_eligible;
+                    
+                    // Handle hak_edis_amount - use provided value or calculated
+                    const hak_edis_amount = exp.hak_edis_amount !== undefined 
+                        ? parseFloat(exp.hak_edis_amount) 
+                        : hakEdisResult.hak_edis_amount;
+
+                    const insertResult = await client.query(`
+                        INSERT INTO expenses (
+                            expense_id, date, vendor_name, amount, currency,
+                            description, primary_tag, work_scope_level, hak_edis_policy,
+                            is_hak_edis_eligible, hak_edis_amount, payment_method, created_by
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        RETURNING expense_id, date, vendor_name, amount, primary_tag
+                    `, [
+                        expense_id,
+                        exp.date,
+                        exp.vendor_name,
+                        parseFloat(exp.amount),
+                        exp.currency || 'USD',
+                        exp.description || '',
+                        exp.primary_tag,
+                        exp.work_scope_level,
+                        exp.hak_edis_policy,
+                        is_eligible,
+                        hak_edis_amount,
+                        exp.payment_method || null,
+                        req.user.user_id
+                    ]);
+
+                    results.imported++;
+                    results.expenses.push(insertResult.rows[0]);
+                } catch (err) {
+                    results.failed++;
+                    results.errors.push({
+                        index: i,
+                        expense: exp,
+                        error: err.message
+                    });
+                }
+            }
+        });
+
+        // Log the import action
+        await logAudit(req.user.user_id, 'BULK_IMPORT', 'expenses', null, null, {
+            imported: results.imported,
+            failed: results.failed
+        }, req);
+
+        res.status(results.failed > 0 ? 207 : 201).json({
+            success: results.failed === 0,
+            data: results
+        });
+    } catch (error) {
+        console.error('[Expenses] Import error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to import expenses',
+            details: error.message
         });
     }
 });

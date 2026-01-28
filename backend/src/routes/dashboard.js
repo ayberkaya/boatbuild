@@ -29,6 +29,34 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
             GROUP BY currency
         `);
 
+        // Spend by Başlık (top-level category) grouped by currency
+        const spendByBaslikResult = await query(`
+            SELECT 
+                CASE 
+                    WHEN UPPER(primary_tag) LIKE 'IMALAT%' OR UPPER(primary_tag) IN ('MOTOR', 'KAAN_ODEME', 'ETKIN') THEN 'İmalat'
+                    WHEN UPPER(primary_tag) LIKE 'YUNANISTAN%' THEN 'Yunanistan Kurulum'
+                    WHEN UPPER(primary_tag) LIKE 'TERSANE%' THEN 'Tersane Kurulum'
+                    WHEN UPPER(primary_tag) = 'REKLAM' THEN 'Reklam ve Tanıtım'
+                    WHEN UPPER(primary_tag) = 'BARAN' THEN 'Baran'
+                    ELSE 'Diğer'
+                END as baslik,
+                currency,
+                COALESCE(SUM(amount), 0) as total_spend,
+                COUNT(*) as expense_count
+            FROM expenses
+            GROUP BY 
+                CASE 
+                    WHEN UPPER(primary_tag) LIKE 'IMALAT%' OR UPPER(primary_tag) IN ('MOTOR', 'KAAN_ODEME', 'ETKIN') THEN 'İmalat'
+                    WHEN UPPER(primary_tag) LIKE 'YUNANISTAN%' THEN 'Yunanistan Kurulum'
+                    WHEN UPPER(primary_tag) LIKE 'TERSANE%' THEN 'Tersane Kurulum'
+                    WHEN UPPER(primary_tag) = 'REKLAM' THEN 'Reklam ve Tanıtım'
+                    WHEN UPPER(primary_tag) = 'BARAN' THEN 'Baran'
+                    ELSE 'Diğer'
+                END,
+                currency
+            ORDER BY total_spend DESC
+        `);
+
         // Total Paid Hak Ediş (realized) by currency
         const paidHakEdisResult = await query(`
             SELECT 
@@ -108,6 +136,19 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
             futureExpensesByCurrency[row.currency] = parseFloat(row.future_expenses);
         });
 
+        // Process spend by başlık with currency breakdown
+        const spendByBaslik = {};
+        spendByBaslikResult.rows.forEach(row => {
+            if (!spendByBaslik[row.baslik]) {
+                spendByBaslik[row.baslik] = {
+                    by_currency: {},
+                    expense_count: 0
+                };
+            }
+            spendByBaslik[row.baslik].by_currency[row.currency] = parseFloat(row.total_spend);
+            spendByBaslik[row.baslik].expense_count += parseInt(row.expense_count);
+        });
+
         res.json({
             success: true,
             data: {
@@ -119,7 +160,8 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
                 transfer_expense_mismatch: mismatch,
                 pending_transfers: parseInt(pendingApprovalsResult.rows[0].pending_transfers),
                 pending_overrides: parseInt(pendingApprovalsResult.rows[0].pending_overrides),
-                future_expenses: futureExpensesByCurrency
+                future_expenses: futureExpensesByCurrency,
+                spend_by_baslik: spendByBaslik
             }
         });
     } catch (error) {

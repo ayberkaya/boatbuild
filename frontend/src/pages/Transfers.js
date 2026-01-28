@@ -18,6 +18,7 @@ import {
   Eye,
   Check,
   X,
+  Trash2,
 } from 'lucide-react';
 
 const Transfers = () => {
@@ -84,6 +85,23 @@ const Transfers = () => {
       fetchTransfers();
     } catch (error) {
       console.error('Failed to reject:', error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (transferId, e) => {
+    e.stopPropagation();
+    if (!window.confirm('Bu transferi silmek istediğinizden emin misiniz?')) return;
+
+    try {
+      setActionLoading(transferId);
+      await transfersAPI.delete(transferId);
+      fetchTransfers();
+    } catch (error) {
+      console.error('Failed to delete:', error);
+      const errorMessage = error.response?.data?.error || 'Transfer silinemedi';
+      alert(errorMessage);
     } finally {
       setActionLoading(null);
     }
@@ -277,6 +295,16 @@ const Transfers = () => {
                                   <X className="w-4 h-4" />
                                 </button>
                               </>
+                            )}
+                            {isOwner && (
+                              <button
+                                onClick={(e) => handleDelete(transfer.transfer_id, e)}
+                                disabled={actionLoading === transfer.transfer_id}
+                                className="p-2 text-danger hover:bg-danger-50 rounded-lg"
+                                title="Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             )}
                             <button className="p-2 hover:bg-gray-100 rounded-lg">
                               <Eye className="w-4 h-4 text-text-secondary" />

@@ -420,6 +420,62 @@ router.post('/:id/reject', authenticate, requireOwner, [
 });
 
 /**
+ * DELETE /api/transfers/:id
+ * Delete transfer (Owner only)
+ */
+router.delete('/:id', authenticate, requireOwner, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const existingResult = await query('SELECT * FROM transfers WHERE transfer_id = $1', [id]);
+        if (existingResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Transfer not found'
+            });
+        }
+
+        const existing = existingResult.rows[0];
+
+        // Check if transfer has linked expenses
+        const linkedExpenses = await query(
+            'SELECT COUNT(*) as count FROM expenses WHERE linked_transfer_id = $1',
+            [id]
+        );
+
+        if (parseInt(linkedExpenses.rows[0].count) > 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Cannot delete transfer with linked expenses. Unlink expenses first.',
+                code: 'TRANSFER_HAS_LINKED_EXPENSES'
+            });
+        }
+
+        await transaction(async (client) => {
+            // Delete related documents
+            await client.query('DELETE FROM documents WHERE transfer_id = $1', [id]);
+            // Delete related alerts
+            await client.query('DELETE FROM alerts WHERE transfer_id = $1', [id]);
+            // Delete transfer
+            await client.query('DELETE FROM transfers WHERE transfer_id = $1', [id]);
+        });
+
+        await logAudit(req.user.user_id, 'DELETE_TRANSFER', 'transfers', id, existing, null, req);
+
+        res.json({
+            success: true,
+            message: 'Transfer deleted successfully'
+        });
+    } catch (error) {
+        console.error('[Transfers] Delete error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete transfer'
+        });
+    }
+});
+
+/**
  * GET /api/transfers/unlinked/list
  * Get transfers without linked expenses (for mismatch detection)
  */

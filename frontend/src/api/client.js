@@ -72,6 +72,7 @@ export const expensesAPI = {
   delete: (id) => client.delete(`/expenses/${id}`),
   categories: () => client.get('/expenses/categories/list'),
   createCategory: (data) => client.post('/expenses/categories', data),
+  hakedisSummary: () => client.get('/expenses/hakedis-summary'),
 };
 
 // Transfers API
@@ -80,6 +81,7 @@ export const transfersAPI = {
   get: (id) => client.get(`/transfers/${id}`),
   create: (data) => client.post('/transfers', data),
   update: (id, data) => client.put(`/transfers/${id}`, data),
+  delete: (id) => client.delete(`/transfers/${id}`),
   approve: (id) => client.post(`/transfers/${id}/approve`),
   reject: (id, reason) => client.post(`/transfers/${id}/reject`, { reason }),
   unlinked: () => client.get('/transfers/unlinked/list'),
