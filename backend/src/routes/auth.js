@@ -183,6 +183,13 @@ router.post('/change-password', authenticate, [
             [req.user.user_id]
         );
 
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
         const isValidPassword = await bcrypt.compare(current_password, result.rows[0].password_hash);
         if (!isValidPassword) {
             return res.status(401).json({

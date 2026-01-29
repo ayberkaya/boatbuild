@@ -1,6 +1,7 @@
 /**
  * Database Migration Script
- * BoatBuild CRM - Run this to set up the database schema
+ * BoatBuild CRM - Run this to set up the database schema and run migrations.
+ * Idempotent: safe to run on fresh DB (schema + migrations) or existing DB (migrations only).
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
@@ -8,7 +9,6 @@ require('dotenv').config({ path: require('path').join(__dirname, '../../.env') }
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -20,53 +20,47 @@ const pool = new Pool({
 
 async function migrate() {
     const client = await pool.connect();
-    
+    const migrationsDir = path.join(__dirname, 'migrations');
+
     try {
         console.log('Starting database migration...\n');
 
-        // Read and execute schema
+        // 1. Run main schema (fresh DB only; ignore "already exists" on re-run)
         const schemaPath = path.join(__dirname, 'schema.sql');
         const schema = fs.readFileSync(schemaPath, 'utf8');
-
         console.log('Executing schema...');
-        await client.query(schema);
-        console.log('Schema created successfully.\n');
-
-        // Create default Owner user
-        console.log('Creating default users...');
-        
-        const ownerPasswordHash = await bcrypt.hash('owner123', 12);
-        const operationPasswordHash = await bcrypt.hash('operation123', 12);
-
-        // Check if users exist
-        const existingOwner = await client.query(
-            "SELECT user_id FROM users WHERE email = 'owner@boatbuild.com'"
-        );
-
-        if (existingOwner.rows.length === 0) {
-            await client.query(`
-                INSERT INTO users (email, password_hash, full_name, role)
-                VALUES 
-                    ('owner@boatbuild.com', $1, 'Owner', 'OWNER'),
-                    ('kaan@boatbuild.com', $2, 'Kaan (Operation)', 'OPERATION')
-            `, [ownerPasswordHash, operationPasswordHash]);
-            
-            console.log('Default users created:');
-            console.log('  - Owner: owner@boatbuild.com / owner123');
-            console.log('  - Operation: kaan@boatbuild.com / operation123');
-        } else {
-            console.log('Users already exist, skipping...');
+        try {
+            await client.query(schema);
+            console.log('Schema created successfully.\n');
+        } catch (schemaError) {
+            if (schemaError.message.includes('already exists')) {
+                console.log('Schema objects already exist, continuing with migrations.\n');
+            } else {
+                throw schemaError;
+            }
         }
 
-        console.log('\n✓ Migration completed successfully!');
+        // 2. Run migration files in order
+        if (!fs.existsSync(migrationsDir)) {
+            console.log('No migrations folder, skipping.\n');
+        } else {
+            const files = fs.readdirSync(migrationsDir)
+                .filter(f => f.endsWith('.sql'))
+                .sort();
+            for (const file of files) {
+                const filePath = path.join(migrationsDir, file);
+                const sql = fs.readFileSync(filePath, 'utf8');
+                console.log(`Running migration: ${file}`);
+                await client.query(sql);
+            }
+            if (files.length) console.log('');
+        }
 
+        console.log('✓ Migration completed successfully.');
+        console.log('  Default login: owner@boatbuild.com / owner123');
+        console.log('  Or: kaan@boatbuild.com / operation123');
     } catch (error) {
         console.error('Migration failed:', error.message);
-        
-        if (error.message.includes('already exists')) {
-            console.log('\nNote: Some objects may already exist. This is expected on re-runs.');
-        }
-        
         process.exit(1);
     } finally {
         client.release();

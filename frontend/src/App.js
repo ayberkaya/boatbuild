@@ -17,6 +17,7 @@ import Transfers from './pages/Transfers';
 import TransferForm from './pages/TransferForm';
 import Vendors from './pages/Vendors';
 import Documents from './pages/Documents';
+import Settings from './pages/Settings';
 
 // Layout
 import Layout from './components/Layout';
@@ -76,6 +77,7 @@ const AppRoutes = () => {
         <Route path="transfers/:id" element={<TransferForm />} />
         <Route path="vendors" element={<Vendors />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
 
       {/* Catch all */}

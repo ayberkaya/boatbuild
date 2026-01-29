@@ -17,6 +17,7 @@ const overrideRoutes = require('./routes/overrides');
 const documentRoutes = require('./routes/documents');
 const vendorRoutes = require('./routes/vendors');
 const dashboardRoutes = require('./routes/dashboard');
+const dataExportImportRoutes = require('./routes/dataExportImport');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -88,6 +89,7 @@ app.use('/api/overrides', overrideRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/data', dataExportImportRoutes);
 
 // Serve uploaded files (protected)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

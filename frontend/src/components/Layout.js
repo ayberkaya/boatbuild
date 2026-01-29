@@ -19,6 +19,7 @@ import {
   Ship,
   Bell,
   ChevronDown,
+  Settings,
 } from 'lucide-react';
 
 const Layout = () => {
@@ -39,6 +40,7 @@ const Layout = () => {
     { to: '/transfers', icon: ArrowLeftRight, label: 'Transferler' },
     { to: '/vendors', icon: Users, label: 'Tedarikçiler' },
     { to: '/documents', icon: FileText, label: 'Belgeler' },
+    { to: '/settings', icon: Settings, label: 'Ayarlar' },
   ];
 
   return (
@@ -157,6 +159,14 @@ const Layout = () => {
                           <p className="text-sm font-medium text-text">{user?.full_name}</p>
                           <p className="text-xs text-text-secondary">{user?.email}</p>
                         </div>
+                        <NavLink
+                          to="/settings"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-text hover:bg-gray-50"
+                        >
+                          <Settings className="w-4 h-4" />
+                          Ayarlar
+                        </NavLink>
                         <button
                           onClick={handleLogout}
                           className="w-full flex items-center gap-2 px-4 py-2 text-sm text-danger hover:bg-danger-50"

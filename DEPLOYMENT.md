@@ -83,9 +83,10 @@ Render da benzer şekilde çalışır.
    - `CORS_ORIGIN`: Frontend URL'i
    - `REACT_APP_API_URL`: Backend URL'i
 
-4. **Migration:**
-   - Backend service'de "Shell" aç
+4. **Migration (required for first deploy and for login):**
+   - Backend service'de "Shell" aç (veya one-off job)
    - `cd backend && npm run migrate`
+   - Bu komut schema + seed (varsayılan kullanıcılar) uygular. Çalıştırılmazsa uygulama açılır ama giriş yapılamaz.
 
 ---
 
@@ -212,6 +213,11 @@ REACT_APP_API_URL=https://your-backend-domain.com/api
 ```
 
 ## Troubleshooting
+
+### Giriş yapılamıyor / "No users" / User yok:
+- Migration hiç çalıştırılmamıştır. Seed (varsayılan kullanıcı) sadece `npm run migrate` ile eklenir.
+- **Çözüm:** Backend ortamında (Render Shell, Railway run, veya sunucuda) bir kez: `cd backend && npm run migrate`
+- Ardından giriş: `owner@boatbuild.com` / `owner123` veya `kaan@boatbuild.com` / `operation123`. Production'da ilk girişten sonra şifre değiştirilmeli.
 
 ### Database bağlantı hatası:
 - DATABASE_URL veya DB_* değişkenlerini kontrol et

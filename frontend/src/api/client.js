@@ -134,4 +134,17 @@ export const dashboardAPI = {
   rateCheck: () => client.get('/dashboard/hak-edis-rate-check'),
 };
 
+// Data export/import (round-trip CSV ZIP)
+export const dataAPI = {
+  exportCsv: () =>
+    client.get('/data/export', { responseType: 'blob' }),
+  importCsv: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return client.post('/data/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+};
+
 export default client;
