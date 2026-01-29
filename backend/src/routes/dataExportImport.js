@@ -55,6 +55,26 @@ function parseTimestampForPg(val) {
 }
 
 /**
+ * Export: date column to YYYY-MM-DD (PostgreSQL DATE); import: any date/timestamp string to YYYY-MM-DD or null
+ */
+function toDateOnly(val) {
+  if (val == null) return '';
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
+function parseDateForPg(val) {
+  if (val === '' || val === undefined || val === null) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * Single CSV: entity_type + prefixed columns per entity (no name collision)
  */
 const SINGLE_CSV_COLUMNS = [
@@ -108,7 +128,7 @@ router.get('/export', authenticate, requireAuthenticated, async (req, res) => {
     transfersRes.rows.forEach(r => {
       rows.push({
         [ENTITY_TYPE]: 'transfer',
-        t_id: r.transfer_id, t_date: r.date, t_amount: r.amount, t_currency: r.currency, t_from: r.from_account, t_to: r.to_account,
+        t_id: r.transfer_id, t_date: toDateOnly(r.date), t_amount: r.amount, t_currency: r.currency, t_from: r.from_account, t_to: r.to_account,
         t_vendor_id: r.vendor_id, t_description: r.description, t_status: r.status, t_created_by: r.created_by,
         t_created_at: toIsoTimestamp(r.created_at), t_updated_at: toIsoTimestamp(r.updated_at), t_approved_by: r.approved_by, t_approved_at: toIsoTimestamp(r.approved_at)
       });
@@ -116,7 +136,7 @@ router.get('/export', authenticate, requireAuthenticated, async (req, res) => {
     expensesRes.rows.forEach(r => {
       rows.push({
         [ENTITY_TYPE]: 'expense',
-        e_id: r.expense_id, e_date: r.date, e_vendor_id: r.vendor_id, e_vendor_name: r.vendor_name, e_amount: r.amount, e_currency: r.currency, e_description: r.description,
+        e_id: r.expense_id, e_date: toDateOnly(r.date), e_vendor_id: r.vendor_id, e_vendor_name: r.vendor_name, e_amount: r.amount, e_currency: r.currency, e_description: r.description,
         e_primary_tag: r.primary_tag, e_work_scope: r.work_scope_level, e_hak_policy: r.hak_edis_policy, e_eligible: r.is_hak_edis_eligible, e_hak_amount: r.hak_edis_amount, e_hak_rate: r.hak_edis_rate,
         e_linked_transfer: r.linked_transfer_id, e_category_id: r.category_id, e_has_override: r.has_owner_override, e_override_id: r.override_id, e_created_by: r.created_by,
         e_created_at: toIsoTimestamp(r.created_at), e_updated_at: toIsoTimestamp(r.updated_at)
@@ -212,7 +232,7 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
       } else if (t === 'transfer') {
         transfers.push({
           transfer_id: row.t_id || null,
-          date: row.t_date,
+          date: parseDateForPg(row.t_date),
           amount: cell(row.t_amount, { num: true }),
           currency: row.t_currency || 'TRY',
           from_account: row.t_from || null,
@@ -229,7 +249,7 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
       } else if (t === 'expense') {
         expenses.push({
           expense_id: row.e_id || null,
-          date: row.e_date,
+          date: parseDateForPg(row.e_date),
           vendor_id: row.e_vendor_id || null,
           vendor_name: row.e_vendor_name || '',
           amount: cell(row.e_amount, { num: true }),
@@ -281,7 +301,7 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
         if (!row.category_id) continue;
         await client.query(`
           INSERT INTO expense_categories (category_id, name, primary_tag, default_work_scope, default_hak_edis_policy, requires_documentation, description, created_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamptz, NOW()))
+          VALUES ($1, $2, $3, $4::work_scope_level, $5::hak_edis_policy, $6, $7, COALESCE($8::timestamptz, NOW()))
           ON CONFLICT (category_id) DO UPDATE SET
             name = EXCLUDED.name, primary_tag = EXCLUDED.primary_tag, default_work_scope = EXCLUDED.default_work_scope,
             default_hak_edis_policy = EXCLUDED.default_hak_edis_policy, requires_documentation = EXCLUDED.requires_documentation,
@@ -303,10 +323,10 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
       }
 
       for (const row of transfers) {
-        if (!row.transfer_id) continue;
+        if (!row.transfer_id || !row.date) continue;
         await client.query(`
           INSERT INTO transfers (transfer_id, date, amount, currency, from_account, to_account, vendor_id, description, status, created_by, created_at, updated_at, approved_by, approved_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'PENDING'), $10, COALESCE($11::timestamptz, NOW()), COALESCE($12::timestamptz, NOW()), $13, $14)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::transfer_status, 'PENDING'), $10, COALESCE($11::timestamptz, NOW()), COALESCE($12::timestamptz, NOW()), $13, $14)
           ON CONFLICT (transfer_id) DO UPDATE SET
             date = EXCLUDED.date, amount = EXCLUDED.amount, currency = EXCLUDED.currency, from_account = EXCLUDED.from_account,
             to_account = EXCLUDED.to_account, vendor_id = EXCLUDED.vendor_id, description = EXCLUDED.description, status = EXCLUDED.status,
@@ -316,11 +336,11 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
       }
 
       for (const row of expenses) {
-        if (!row.expense_id) continue;
+        if (!row.expense_id || !row.date) continue;
         await client.query(`
           INSERT INTO expenses (expense_id, date, vendor_id, vendor_name, amount, currency, description, primary_tag, work_scope_level, hak_edis_policy,
             is_hak_edis_eligible, hak_edis_amount, hak_edis_rate, linked_transfer_id, category_id, has_owner_override, override_id, created_by, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, 0.07), $14, $15, COALESCE($16, false), $17, $18, COALESCE($19::timestamptz, NOW()), COALESCE($20::timestamptz, NOW()))
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::work_scope_level, $10::hak_edis_policy, $11, $12, COALESCE($13, 0.07), $14, $15, COALESCE($16, false), $17, $18, COALESCE($19::timestamptz, NOW()), COALESCE($20::timestamptz, NOW()))
           ON CONFLICT (expense_id) DO UPDATE SET
             date = EXCLUDED.date, vendor_id = EXCLUDED.vendor_id, vendor_name = EXCLUDED.vendor_name, amount = EXCLUDED.amount, currency = EXCLUDED.currency,
             description = EXCLUDED.description, primary_tag = EXCLUDED.primary_tag, work_scope_level = EXCLUDED.work_scope_level, hak_edis_policy = EXCLUDED.hak_edis_policy,
@@ -335,7 +355,7 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
         if (!row.override_id || !row.expense_id) continue;
         await client.query(`
           INSERT INTO hak_edis_overrides (override_id, expense_id, original_is_eligible, original_hak_edis_amount, requested_is_eligible, requested_hak_edis_amount, reason, status, requested_by, requested_at, approved_by, approved_at, approval_notes, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'PENDING'), $9, COALESCE($10::timestamptz, NOW()), $11, $12, $13, COALESCE($14::timestamptz, NOW()), COALESCE($15::timestamptz, NOW()))
+          VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::override_status, 'PENDING'), $9, COALESCE($10::timestamptz, NOW()), $11, $12, $13, COALESCE($14::timestamptz, NOW()), COALESCE($15::timestamptz, NOW()))
           ON CONFLICT (override_id) DO UPDATE SET
             expense_id = EXCLUDED.expense_id, original_is_eligible = EXCLUDED.original_is_eligible, original_hak_edis_amount = EXCLUDED.original_hak_edis_amount,
             requested_is_eligible = EXCLUDED.requested_is_eligible, requested_hak_edis_amount = EXCLUDED.requested_hak_edis_amount, reason = EXCLUDED.reason, status = EXCLUDED.status,
