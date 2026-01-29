@@ -33,6 +33,28 @@ function escapeCsvField(val) {
 }
 
 /**
+ * Export: serialize date/timestamp as ISO 8601 so PostgreSQL accepts on re-import (avoids "time zone GMT+0400 not recognized")
+ */
+function toIsoTimestamp(val) {
+  if (val == null) return '';
+  if (val instanceof Date) return val.toISOString();
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? String(val) : d.toISOString();
+}
+
+/**
+ * Import: parse CSV date/timestamp string to ISO 8601 or null for PostgreSQL timestamptz
+ */
+function parseTimestampForPg(val) {
+  if (val === '' || val === undefined || val === null) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/**
  * Single CSV: entity_type + prefixed columns per entity (no name collision)
  */
 const SINGLE_CSV_COLUMNS = [
@@ -73,21 +95,22 @@ router.get('/export', authenticate, requireAuthenticated, async (req, res) => {
       rows.push({
         [ENTITY_TYPE]: 'vendor',
         v_id: r.vendor_id, v_name: r.name, v_tax_number: r.tax_number, v_address: r.address, v_phone: r.phone, v_email: r.email,
-        v_requires_doc: r.requires_documentation, v_notes: r.notes, v_created_at: r.created_at, v_updated_at: r.updated_at
+        v_requires_doc: r.requires_documentation, v_notes: r.notes, v_created_at: toIsoTimestamp(r.created_at), v_updated_at: toIsoTimestamp(r.updated_at)
       });
     });
     categoriesRes.rows.forEach(r => {
       rows.push({
         [ENTITY_TYPE]: 'expense_category',
         c_id: r.category_id, c_name: r.name, c_primary_tag: r.primary_tag, c_work_scope: r.default_work_scope, c_hak_policy: r.default_hak_edis_policy,
-        c_requires_doc: r.requires_documentation, c_description: r.description, c_created_at: r.created_at
+        c_requires_doc: r.requires_documentation, c_description: r.description, c_created_at: toIsoTimestamp(r.created_at)
       });
     });
     transfersRes.rows.forEach(r => {
       rows.push({
         [ENTITY_TYPE]: 'transfer',
         t_id: r.transfer_id, t_date: r.date, t_amount: r.amount, t_currency: r.currency, t_from: r.from_account, t_to: r.to_account,
-        t_vendor_id: r.vendor_id, t_description: r.description, t_status: r.status, t_created_by: r.created_by, t_created_at: r.created_at, t_updated_at: r.updated_at, t_approved_by: r.approved_by, t_approved_at: r.approved_at
+        t_vendor_id: r.vendor_id, t_description: r.description, t_status: r.status, t_created_by: r.created_by,
+        t_created_at: toIsoTimestamp(r.created_at), t_updated_at: toIsoTimestamp(r.updated_at), t_approved_by: r.approved_by, t_approved_at: toIsoTimestamp(r.approved_at)
       });
     });
     expensesRes.rows.forEach(r => {
@@ -95,7 +118,8 @@ router.get('/export', authenticate, requireAuthenticated, async (req, res) => {
         [ENTITY_TYPE]: 'expense',
         e_id: r.expense_id, e_date: r.date, e_vendor_id: r.vendor_id, e_vendor_name: r.vendor_name, e_amount: r.amount, e_currency: r.currency, e_description: r.description,
         e_primary_tag: r.primary_tag, e_work_scope: r.work_scope_level, e_hak_policy: r.hak_edis_policy, e_eligible: r.is_hak_edis_eligible, e_hak_amount: r.hak_edis_amount, e_hak_rate: r.hak_edis_rate,
-        e_linked_transfer: r.linked_transfer_id, e_category_id: r.category_id, e_has_override: r.has_owner_override, e_override_id: r.override_id, e_created_by: r.created_by, e_created_at: r.created_at, e_updated_at: r.updated_at
+        e_linked_transfer: r.linked_transfer_id, e_category_id: r.category_id, e_has_override: r.has_owner_override, e_override_id: r.override_id, e_created_by: r.created_by,
+        e_created_at: toIsoTimestamp(r.created_at), e_updated_at: toIsoTimestamp(r.updated_at)
       });
     });
     overridesRes.rows.forEach(r => {
@@ -103,7 +127,8 @@ router.get('/export', authenticate, requireAuthenticated, async (req, res) => {
         [ENTITY_TYPE]: 'hak_edis_override',
         o_id: r.override_id, o_expense_id: r.expense_id, o_orig_eligible: r.original_is_eligible, o_orig_amount: r.original_hak_edis_amount,
         o_req_eligible: r.requested_is_eligible, o_req_amount: r.requested_hak_edis_amount, o_reason: r.reason, o_status: r.status,
-        o_requested_by: r.requested_by, o_requested_at: r.requested_at, o_approved_by: r.approved_by, o_approved_at: r.approved_at, o_notes: r.approval_notes, o_created_at: r.created_at, o_updated_at: r.updated_at
+        o_requested_by: r.requested_by, o_requested_at: toIsoTimestamp(r.requested_at), o_approved_by: r.approved_by, o_approved_at: toIsoTimestamp(r.approved_at),
+        o_notes: r.approval_notes, o_created_at: toIsoTimestamp(r.created_at), o_updated_at: toIsoTimestamp(r.updated_at)
       });
     });
 
@@ -169,7 +194,7 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
           default_hak_edis_policy: row.c_hak_policy || 'ALWAYS_EXCLUDED',
           requires_documentation: cell(row.c_requires_doc, { bool: true }),
           description: row.c_description || null,
-          created_at: row.c_created_at || null
+          created_at: parseTimestampForPg(row.c_created_at)
         });
       } else if (t === 'vendor') {
         vendors.push({
@@ -181,8 +206,8 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
           email: row.v_email || null,
           requires_documentation: cell(row.v_requires_doc, { bool: true }),
           notes: row.v_notes || null,
-          created_at: row.v_created_at || null,
-          updated_at: row.v_updated_at || null
+          created_at: parseTimestampForPg(row.v_created_at),
+          updated_at: parseTimestampForPg(row.v_updated_at)
         });
       } else if (t === 'transfer') {
         transfers.push({
@@ -196,10 +221,10 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
           description: row.t_description || null,
           status: row.t_status || 'PENDING',
           created_by: row.t_created_by || null,
-          created_at: row.t_created_at || null,
-          updated_at: row.t_updated_at || null,
+          created_at: parseTimestampForPg(row.t_created_at),
+          updated_at: parseTimestampForPg(row.t_updated_at),
           approved_by: row.t_approved_by || null,
-          approved_at: row.t_approved_at || null
+          approved_at: parseTimestampForPg(row.t_approved_at)
         });
       } else if (t === 'expense') {
         expenses.push({
@@ -221,8 +246,8 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
           has_owner_override: cell(row.e_has_override, { bool: true }),
           override_id: row.e_override_id || null,
           created_by: row.e_created_by || null,
-          created_at: row.e_created_at || null,
-          updated_at: row.e_updated_at || null
+          created_at: parseTimestampForPg(row.e_created_at),
+          updated_at: parseTimestampForPg(row.e_updated_at)
         });
       } else if (t === 'hak_edis_override' || t === 'override') {
         overrides.push({
@@ -235,12 +260,12 @@ router.post('/import', authenticate, requireAuthenticated, upload.single('file')
           reason: row.o_reason || '',
           status: row.o_status || 'PENDING',
           requested_by: row.o_requested_by || null,
-          requested_at: row.o_requested_at || null,
+          requested_at: parseTimestampForPg(row.o_requested_at),
           approved_by: row.o_approved_by || null,
-          approved_at: row.o_approved_at || null,
+          approved_at: parseTimestampForPg(row.o_approved_at),
           approval_notes: row.o_notes || null,
-          created_at: row.o_created_at || null,
-          updated_at: row.o_updated_at || null
+          created_at: parseTimestampForPg(row.o_created_at),
+          updated_at: parseTimestampForPg(row.o_updated_at)
         });
       }
     }
