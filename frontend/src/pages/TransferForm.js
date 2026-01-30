@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { transfersAPI, vendorsAPI } from '../api/client';
+import { formatCurrency } from '../utils/currency';
 import { ArrowLeft, Save, AlertTriangle } from 'lucide-react';
 
 const TransferForm = () => {
@@ -103,13 +104,6 @@ const TransferForm = () => {
     } finally {
       setSaving(false);
     }
-  };
-
-  const formatCurrency = (amount, currency = 'TRY') => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
   };
 
   if (loading) {
@@ -250,10 +244,10 @@ const TransferForm = () => {
                     <p className="text-sm text-text-secondary">{expense.primary_tag}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium money">{formatCurrency(expense.amount)}</p>
+                    <p className="font-medium money">{formatCurrency(expense.amount, expense.currency)}</p>
                     {expense.is_hak_edis_eligible && (
                       <p className="text-sm text-success">
-                        Hak ediş: {formatCurrency(expense.hak_edis_amount)}
+                        Hak ediş: {formatCurrency(expense.hak_edis_amount, expense.currency)}
                       </p>
                     )}
                   </div>

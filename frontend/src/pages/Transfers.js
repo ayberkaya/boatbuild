@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { transfersAPI } from '../api/client';
+import { formatCurrency, formatCurrencyMulti as formatMulti } from '../utils/currency';
 import {
   Plus,
   Filter,
@@ -107,13 +108,6 @@ const Transfers = () => {
     }
   };
 
-  const formatCurrency = (amount, currency = 'TRY') => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
-  };
-
   // Group transfers by currency and calculate totals
   const calculateTotalsByCurrency = (transferList) => {
     const totals = {};
@@ -127,17 +121,7 @@ const Transfers = () => {
     return totals;
   };
 
-  // Format multiple currencies for display
-  const formatCurrencyMulti = (totalsByCurrency) => {
-    if (!totalsByCurrency || Object.keys(totalsByCurrency).length === 0) {
-      return [formatCurrency(0)];
-    }
-    const currencies = Object.keys(totalsByCurrency).filter(c => totalsByCurrency[c] > 0);
-    if (currencies.length === 0) {
-      return [formatCurrency(0)];
-    }
-    return currencies.map(currency => formatCurrency(totalsByCurrency[currency], currency));
-  };
+  const formatCurrencyMulti = (totalsByCurrency) => formatMulti(totalsByCurrency);
 
   // Calculate linked expense totals by currency
   const calculateLinkedExpenseTotalsByCurrency = (transferList) => {

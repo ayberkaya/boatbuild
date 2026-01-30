@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { expensesAPI } from '../api/client';
+import { formatCurrency, formatCurrencyMulti } from '../utils/currency';
 import {
   Percent,
   TrendingUp,
@@ -22,6 +23,7 @@ const Hakedis = () => {
     totalHakedis: 0,
     paidAmount: 0,
     remainingAmount: 0,
+    byCurrency: {},
   });
   const [payments, setPayments] = useState([]);
 
@@ -43,8 +45,9 @@ const Hakedis = () => {
           totalHakedis: data.summary.totalHakedis,
           paidAmount: data.summary.paidAmount,
           remainingAmount: data.summary.remainingAmount,
+          byCurrency: data.summary.byCurrency || {},
         });
-        
+
         setPayments(data.payments || []);
       } catch (apiError) {
         // Fallback: Calculate from expense list if API endpoint not available
@@ -53,47 +56,50 @@ const Hakedis = () => {
         const expenses = response.data.data.expenses;
         
         // Calculate base amount (expenses with hak_edis_eligible = true)
-        const baseAmount = expenses
-          .filter(e => e.is_hak_edis_eligible)
-          .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-        
-        // Calculate total hakediş (7%)
-        const totalHakedis = baseAmount * 0.07;
-        
-        // Get Kaan payments (expenses with KAAN_ODEME tag)
-        const kaanPayments = expenses.filter(e => 
-          e.primary_tag === 'KAAN_ODEME' || 
-          e.primary_tag?.toUpperCase().includes('KAAN')
-        );
-        
-        const paidAmount = kaanPayments.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-        
-        // Calculate remaining
+        const byCurrency = {};
+        expenses.forEach((e) => {
+          const c = e.currency || 'TRY';
+          if (!byCurrency[c]) byCurrency[c] = { baseAmount: 0, totalHakedis: 0, paidAmount: 0 };
+          if (e.is_hak_edis_eligible) byCurrency[c].baseAmount += parseFloat(e.amount || 0);
+          byCurrency[c].totalHakedis += parseFloat(e.hak_edis_amount || 0);
+          if (e.primary_tag === 'KAAN_ODEME' || e.primary_tag?.toUpperCase().includes('KAAN')) {
+            byCurrency[c].paidAmount += parseFloat(e.amount || 0);
+          }
+        });
+        Object.keys(byCurrency).forEach((c) => {
+          byCurrency[c].remainingAmount = byCurrency[c].totalHakedis - byCurrency[c].paidAmount;
+        });
+        const baseAmount = Object.values(byCurrency).reduce((s, x) => s + x.baseAmount, 0);
+        const totalHakedis = Object.values(byCurrency).reduce((s, x) => s + x.totalHakedis, 0);
+        const paidAmount = Object.values(byCurrency).reduce((s, x) => s + x.paidAmount, 0);
         const remainingAmount = totalHakedis - paidAmount;
-        
+
         setSummary({
           baseAmount,
           totalHakedis,
           paidAmount,
           remainingAmount,
+          byCurrency,
         });
-        
-        setPayments(kaanPayments);
+
+        setPayments(
+          expenses
+            .filter((e) => e.primary_tag === 'KAAN_ODEME' || e.primary_tag?.toUpperCase().includes('KAAN'))
+            .map((e) => ({
+              expense_id: e.expense_id,
+              date: e.date,
+              amount: e.amount,
+              description: e.description,
+              vendor_name: e.vendor_name,
+              currency: e.currency || 'TRY',
+            }))
+        );
       }
     } catch (error) {
       console.error('Failed to fetch hakediş summary:', error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
   };
 
   const formatDate = (dateStr) => {
@@ -117,54 +123,123 @@ const Hakedis = () => {
         <p className="text-text-secondary">İmalat giderleri üzerinden %7 hakediş özeti</p>
       </div>
 
-      {/* Summary Cards */}
+      {/* Primary: Hakediş Matrahı / Toplam Hakediş / Ödenen Bakiye / Kalan Bakiye */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Hakediş Matrahı */}
-        <div className="card">
+        {/* Hakediş Matrahı (komisyonun hesaplanacağı toplam tutar) */}
+        <div className="card border-2 border-blue-200 bg-blue-50/50">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <TrendingUp className="w-5 h-5 text-blue-600" />
             </div>
             <span className="text-sm text-text-secondary">Hakediş Matrahı</span>
           </div>
-          <p className="text-2xl font-bold text-text">{formatCurrency(summary.baseAmount)}</p>
-          <p className="text-xs text-text-muted mt-1">Hakediş dahil giderler toplamı</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.baseAmount])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-blue-700 money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Komisyonun hesaplanacağı toplam tutar</p>
         </div>
 
-        {/* Toplam Hakediş */}
-        <div className="card">
+        {/* Toplam Hakediş (ortaya çıkan toplam hakediş) */}
+        <div className="card border-2 border-green-200 bg-green-50/50">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-green-100 rounded-lg">
               <Percent className="w-5 h-5 text-green-600" />
             </div>
-            <span className="text-sm text-text-secondary">Toplam Hakediş (%7)</span>
+            <span className="text-sm text-text-secondary">Toplam Hakediş</span>
           </div>
-          <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.totalHakedis)}</p>
-          <p className="text-xs text-text-muted mt-1">Matrah x %7</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.totalHakedis])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-green-700 money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Ortaya çıkan toplam hakediş (henüz ödenmemiş olabilir)</p>
         </div>
 
-        {/* Ödenen Hakediş */}
+        {/* Ödenen Bakiye */}
         <div className="card">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-purple-100 rounded-lg">
               <CreditCard className="w-5 h-5 text-purple-600" />
             </div>
-            <span className="text-sm text-text-secondary">Ödenen Hakediş</span>
+            <span className="text-sm text-text-secondary">Ödenen Bakiye</span>
           </div>
-          <p className="text-2xl font-bold text-purple-600">{formatCurrency(summary.paidAmount)}</p>
-          <p className="text-xs text-text-muted mt-1">Kaan'a yapılan ödemeler</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.paidAmount])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-purple-600 money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Kaan'a yapılan ödemeler (Kaan Ödemeler giderleri)</p>
         </div>
 
-        {/* Kalan Hakediş */}
+        {/* Kalan Bakiye */}
         <div className="card border-2 border-orange-200 bg-orange-50">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-orange-100 rounded-lg">
               <Wallet className="w-5 h-5 text-orange-600" />
             </div>
-            <span className="text-sm text-text-secondary">Kalan Hakediş</span>
+            <span className="text-sm text-text-secondary">Kalan Bakiye</span>
           </div>
-          <p className="text-2xl font-bold text-orange-600">{formatCurrency(summary.remainingAmount)}</p>
-          <p className="text-xs text-text-muted mt-1">Ödenecek tutar</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.remainingAmount])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-orange-600 money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Ödenecek tutar (Matrah − Ödenen)</p>
+        </div>
+      </div>
+
+      {/* Hakediş ödemesi gir + secondary: Hakedişe esas gider toplamı */}
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          onClick={() => navigate('/expenses/new', { state: { presetKaanOdeme: true } })}
+          className="btn btn-primary inline-flex items-center gap-2"
+        >
+          <CreditCard className="w-4 h-4" />
+          Hakediş ödemesi gir
+        </button>
+        <p className="text-sm text-text-secondary">
+          Hakediş ödemesi, Gider ekle → Başlık: İmalat, Kategori: Kaan Ödeme ile kaydedilir.
+        </p>
+      </div>
+
+      {/* Secondary: Hakedişe esas gider toplamı (matrah hesabı) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card bg-gray-50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+            </div>
+            <span className="text-sm text-text-secondary">Hakedişe esas gider toplamı</span>
+          </div>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.baseAmount])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-xl font-bold text-text money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Kaan Hakediş = Evet giderler toplamı (matrah × %7 = Hakediş Matrahı)</p>
         </div>
       </div>
 
@@ -173,24 +248,50 @@ const Hakedis = () => {
         <h3 className="font-semibold text-text mb-4">Hesaplama Detayı</h3>
         <div className="space-y-3">
           <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-text-secondary">Hakediş Matrahı (Kaan Hakediş = Evet)</span>
-            <span className="font-medium">{formatCurrency(summary.baseAmount)}</span>
+            <span className="text-text-secondary">Hakedişe esas gider toplamı (Kaan Hakediş = Evet)</span>
+            <span className="font-medium text-right">
+              {formatCurrencyMulti(
+                Object.fromEntries(
+                  Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.baseAmount])
+                )
+              ).join(' · ')}
+            </span>
           </div>
           <div className="flex justify-between py-2 border-b border-gray-100">
             <span className="text-text-secondary">Hakediş Oranı</span>
             <span className="font-medium">%7</span>
           </div>
           <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-text-secondary">Toplam Hakediş</span>
-            <span className="font-medium text-green-600">{formatCurrency(summary.totalHakedis)}</span>
+            <span className="text-text-secondary">Toplam Hakediş (ortaya çıkan hakediş)</span>
+            <span className="font-medium text-green-600 text-right">
+              {formatCurrencyMulti(
+                Object.fromEntries(
+                  Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.totalHakedis])
+                )
+              ).join(' · ')}
+            </span>
           </div>
           <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-text-secondary">Ödenen (Kaan Ödemeler)</span>
-            <span className="font-medium text-purple-600">- {formatCurrency(summary.paidAmount)}</span>
+            <span className="text-text-secondary">Ödenen Bakiye (Kaan Ödemeler)</span>
+            <span className="font-medium text-purple-600 text-right">
+              −
+              {' '}
+              {formatCurrencyMulti(
+                Object.fromEntries(
+                  Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.paidAmount])
+                )
+              ).join(' · ')}
+            </span>
           </div>
           <div className="flex justify-between py-2 bg-orange-50 -mx-4 px-4 rounded-lg">
-            <span className="font-semibold text-text">KALAN BAKİYE</span>
-            <span className="font-bold text-orange-600 text-lg">{formatCurrency(summary.remainingAmount)}</span>
+            <span className="font-semibold text-text">Kalan Bakiye</span>
+            <span className="font-bold text-orange-600 text-lg text-right">
+              {formatCurrencyMulti(
+                Object.fromEntries(
+                  Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.remainingAmount])
+                )
+              ).join(' · ')}
+            </span>
           </div>
         </div>
       </div>
@@ -220,7 +321,7 @@ const Hakedis = () => {
                     <CreditCard className="w-4 h-4 text-purple-600" />
                   </div>
                   <div>
-                    <p className="font-medium text-text">{formatCurrency(payment.amount)}</p>
+                    <p className="font-medium text-text">{formatCurrency(payment.amount, payment.currency || 'TRY')}</p>
                     <p className="text-sm text-text-secondary">{formatDate(payment.date)}</p>
                   </div>
                 </div>
@@ -242,10 +343,10 @@ const Hakedis = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h4 className="font-medium text-blue-800 mb-2">Hakediş Hesaplama Kuralları</h4>
         <ul className="text-sm text-blue-700 space-y-1">
-          <li>• Sadece "Kaan Hakediş = Evet" olan giderler matrahı oluşturur</li>
-          <li>• Hakediş oranı sabit %7'dir</li>
-          <li>• "Kaan Ödeme" kategorisindeki giderler ödenen tutarı oluşturur</li>
-          <li>• Kalan bakiye = Toplam Hakediş - Ödenen Hakediş</li>
+          <li>• Sadece &quot;Kaan Hakediş = Evet&quot; olan giderler hakedişe esas gider toplamını oluşturur; toplam × %7 = Hakediş Matrahı</li>
+          <li>• Hakediş matrahı ortaya çıkar; ödemesi ayrıca yapılır. Ödemeyi girmek için &quot;Hakediş ödemesi gir&quot; ile gider ekleyin, Başlık: İmalat, Kategori: Kaan Ödeme seçin</li>
+          <li>• Ödenen bakiye = Kaan Ödemeler kategorisindeki giderler toplamı</li>
+          <li>• Kalan bakiye = Toplam Hakediş − Ödenen Bakiye</li>
         </ul>
       </div>
     </div>

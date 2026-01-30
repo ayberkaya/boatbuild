@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { dashboardAPI } from '../api/client';
+import { formatCurrency, formatCurrencyMulti } from '../utils/currency';
+import AlertItem from '../components/AlertItem';
 import {
   TrendingUp,
   TrendingDown,
@@ -35,15 +37,6 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
     danger: 'bg-danger text-white',
   };
 
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: 'TRY',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(val);
-  };
-
   return (
     <div 
       className={`card ${variants[variant]} ${onClick ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
@@ -64,7 +57,7 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
             </div>
           ) : (
             <p className={`text-2xl font-bold mt-1 money ${variant === 'default' ? 'text-primary' : ''} break-words`}>
-              {typeof value === 'number' ? formatCurrency(value) : value}
+              {typeof value === 'number' ? formatCurrency(value, 'TRY') : value}
             </p>
           )}
           {subtitle && (
@@ -167,47 +160,6 @@ const CategorySpendCard = ({ baslik, data, formatCurrencyMulti, onClick }) => {
   );
 };
 
-// Alert Item Component
-const AlertItem = ({ alert, onResolve }) => {
-  const severityColors = {
-    CRITICAL: 'border-l-danger bg-danger-50',
-    HIGH: 'border-l-warning bg-warning-50',
-    MEDIUM: 'border-l-secondary bg-secondary-50',
-    LOW: 'border-l-gray-400 bg-gray-50',
-  };
-
-  const icons = {
-    MISSING_DOCUMENT: FileWarning,
-    CONDITIONAL_PENDING: Clock,
-    OVERRIDE_PENDING: AlertTriangle,
-  };
-
-  const Icon = icons[alert.alert_type] || AlertTriangle;
-
-  return (
-    <div className={`p-4 border-l-4 rounded-r-lg ${severityColors[alert.severity] || severityColors.LOW}`}>
-      <div className="flex items-start gap-3">
-        <Icon className="w-5 h-5 text-text-secondary flex-shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-text">{alert.title}</p>
-          <p className="text-sm text-text-secondary mt-1">{alert.message}</p>
-          {alert.expense_vendor && (
-            <p className="text-xs text-text-muted mt-2">
-              {alert.expense_vendor} - {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(alert.expense_amount)}
-            </p>
-          )}
-        </div>
-        <button
-          onClick={() => onResolve(alert.alert_id)}
-          className="text-sm text-primary hover:underline flex-shrink-0"
-        >
-          Çöz
-        </button>
-      </div>
-    </div>
-  );
-};
-
 const Dashboard = () => {
   const navigate = useNavigate();
   const { isOwner } = useAuth();
@@ -243,29 +195,6 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Failed to resolve alert:', error);
     }
-  };
-
-  const formatCurrency = (val, currency = 'TRY') => {
-    if (typeof val === 'string') return val; // Already formatted
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(val || 0);
-  };
-
-  const formatCurrencyMulti = (valuesByCurrency) => {
-    if (!valuesByCurrency || typeof valuesByCurrency !== 'object') {
-      return formatCurrency(0);
-    }
-    
-    const currencies = Object.keys(valuesByCurrency).filter(c => valuesByCurrency[c] > 0);
-    if (currencies.length === 0) {
-      return formatCurrency(0);
-    }
-    
-    return currencies.map(currency => formatCurrency(valuesByCurrency[currency], currency));
   };
 
   if (loading) {
@@ -338,20 +267,13 @@ const Dashboard = () => {
                   baslik={baslik}
                   data={data}
                   formatCurrencyMulti={formatCurrencyMulti}
-                  onClick={() => {
-                    const config = BASLIK_CONFIG[baslik];
-                    if (config?.filter) {
-                      navigate(`/expenses?${config.filter}`);
-                    } else {
-                      navigate('/expenses');
-                    }
-                  }}
+                  onClick={() => navigate(`/expenses?baslik=${encodeURIComponent(baslik)}`)}
                 />
               ))}
-            {/* Ödenen Hak Ediş Card */}
+            {/* Ödenen Hak Ediş Card (Kaan'a yapılan ödemeler) */}
             <div 
               className="p-4 rounded-lg border bg-green-50 border-green-200 cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => navigate('/expenses?is_hak_edis_eligible=true')}
+              onClick={() => navigate('/expenses?primary_tag=KAAN_ODEME')}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
@@ -402,7 +324,11 @@ const Dashboard = () => {
           </div>
           <div className="space-y-3">
             {alerts.slice(0, 5).map((alert) => (
-              <AlertItem key={alert.alert_id} alert={alert} onResolve={handleResolveAlert} />
+              <AlertItem
+                key={alert.alert_id}
+                alert={{ ...alert, expense_currency: alert.expense_currency || 'TRY' }}
+                onResolve={handleResolveAlert}
+              />
             ))}
             {alerts.length > 5 && (
               <button className="flex items-center gap-2 text-sm text-primary hover:underline">
