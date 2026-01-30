@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { expensesAPI } from '../api/client';
 import {
   ArrowLeft,
@@ -132,7 +132,9 @@ const getBaslikKategoriFromTag = (primaryTag) => {
 const ExpenseForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
   const isEditing = !!id;
+  const presetKaanOdeme = location.state?.presetKaanOdeme === true;
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -141,10 +143,10 @@ const ExpenseForm = () => {
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     baslik: 'İmalat',
-    kategori: 'Genel',
+    kategori: presetKaanOdeme ? 'Kaan Ödeme' : 'Genel',
     amount: '',
     kime: '',
-    kaanHakedis: true,
+    kaanHakedis: presetKaanOdeme ? false : true,
     description: '',
   });
 

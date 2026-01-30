@@ -15,12 +15,14 @@ const {
     WORK_SCOPE_LEVEL,
     HAK_EDIS_POLICY
 } = require('../engine/hakEdisEngine');
+const { getVendorLookup, getVendorIdsAndNameKey, buildUnassignedWhereClause, buildVendorFilterWhereClause } = require('../lib/vendorMatching');
 
 const router = express.Router();
 
 /**
  * GET /api/expenses
- * List all expenses with filtering
+ * List all expenses with filtering.
+ * unassigned=true: only expenses that do not match any vendor (same definition as /api/vendors "Diğer / Atanmamış").
  */
 router.get('/', authenticate, requireAuthenticated, async (req, res) => {
     try {
@@ -31,8 +33,10 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
             end_date,
             vendor_id,
             primary_tag,
+            category_id,
             work_scope_level,
-            is_hak_edis_eligible
+            is_hak_edis_eligible,
+            unassigned
         } = req.query;
 
         let whereClause = '';
@@ -51,16 +55,51 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
             params.push(end_date);
         }
 
+        // vendor_id: same logic as /api/vendors card – expenses linked by id OR matched by vendor_name
         if (vendor_id) {
-            paramCount++;
-            whereClause += ` AND e.vendor_id = $${paramCount}`;
-            params.push(vendor_id);
+            const vendorLookup = await getVendorIdsAndNameKey(vendor_id);
+            if (vendorLookup) {
+                const { allVendorIds } = await getVendorLookup();
+                const { whereClause: vendorWhere, params: vendorParams } = buildVendorFilterWhereClause(
+                    vendorLookup.vendorIds,
+                    vendorLookup.nameKey,
+                    allVendorIds,
+                    paramCount + 1
+                );
+                whereClause += vendorWhere;
+                params.push(...vendorParams);
+                paramCount += vendorParams.length;
+            } else {
+                paramCount++;
+                whereClause += ` AND e.vendor_id = $${paramCount}`;
+                params.push(vendor_id);
+            }
         }
 
-        if (primary_tag) {
+        if (category_id) {
             paramCount++;
-            whereClause += ` AND e.primary_tag = $${paramCount}`;
-            params.push(primary_tag);
+            whereClause += ` AND e.category_id = $${paramCount}`;
+            params.push(category_id);
+        }
+
+        // primary_tag filter: when it's a baslik prefix (IMALAT, YUNANISTAN, etc.), use same logic as dashboard
+        if (primary_tag) {
+            const tag = String(primary_tag).toUpperCase().trim();
+            if (tag === 'IMALAT') {
+                whereClause += ` AND (UPPER(e.primary_tag) LIKE 'IMALAT%' OR UPPER(e.primary_tag) IN ('MOTOR', 'KAAN_ODEME', 'ETKIN'))`;
+            } else if (tag === 'YUNANISTAN') {
+                whereClause += ` AND UPPER(e.primary_tag) LIKE 'YUNANISTAN%'`;
+            } else if (tag === 'TERSANE') {
+                whereClause += ` AND UPPER(e.primary_tag) LIKE 'TERSANE%'`;
+            } else if (tag === 'REKLAM') {
+                whereClause += ` AND UPPER(e.primary_tag) = 'REKLAM'`;
+            } else if (tag === 'BARAN') {
+                whereClause += ` AND UPPER(e.primary_tag) = 'BARAN'`;
+            } else {
+                paramCount++;
+                whereClause += ` AND UPPER(e.primary_tag) = UPPER($${paramCount})`;
+                params.push(primary_tag);
+            }
         }
 
         if (work_scope_level) {
@@ -73,6 +112,15 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
             paramCount++;
             whereClause += ` AND e.is_hak_edis_eligible = $${paramCount}`;
             params.push(is_hak_edis_eligible === 'true');
+        }
+
+        // unassigned=true: only expenses with no vendor match (same logic as /api/vendors "Diğer / Atanmamış")
+        if (unassigned === 'true') {
+            const { allVendorIds, vendorNameKeys } = await getVendorLookup();
+            const { whereClause: unassignedWhere, params: unassignedParams } = buildUnassignedWhereClause(allVendorIds, vendorNameKeys, paramCount + 1);
+            whereClause += unassignedWhere;
+            params.push(...unassignedParams);
+            paramCount += unassignedParams.length;
         }
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -138,39 +186,60 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
  */
 router.get('/hakedis-summary', authenticate, requireAuthenticated, async (req, res) => {
     try {
-        // Get hakediş base amount (sum of expenses where is_hak_edis_eligible = true)
-        const baseResult = await query(`
-            SELECT COALESCE(SUM(amount), 0) as base_amount
+        // By currency: base (eligible), total hak_edis, paid (KAAN_ODEME), remaining
+        const baseByCurrency = await query(`
+            SELECT currency, COALESCE(SUM(amount), 0) as base_amount
             FROM expenses
             WHERE is_hak_edis_eligible = true
+            GROUP BY currency
         `);
-        
-        // Get total hak_edis_amount (sum of all hak_edis_amount)
-        const hakEdisResult = await query(`
-            SELECT COALESCE(SUM(hak_edis_amount), 0) as total_hakedis
+        const hakEdisByCurrency = await query(`
+            SELECT currency, COALESCE(SUM(hak_edis_amount), 0) as total_hakedis
             FROM expenses
+            GROUP BY currency
         `);
-        
-        // Get paid amount (expenses with KAAN_ODEME tag)
-        const paidResult = await query(`
-            SELECT COALESCE(SUM(amount), 0) as paid_amount
+        const paidByCurrency = await query(`
+            SELECT currency, COALESCE(SUM(amount), 0) as paid_amount
             FROM expenses
             WHERE UPPER(primary_tag) = 'KAAN_ODEME'
+            GROUP BY currency
         `);
-        
-        // Get Kaan payment history
+
+        const byCurrency = {};
+        const allCurrencies = new Set([
+            ...baseByCurrency.rows.map((r) => r.currency),
+            ...hakEdisByCurrency.rows.map((r) => r.currency),
+            ...paidByCurrency.rows.map((r) => r.currency),
+        ]);
+        allCurrencies.forEach((currency) => {
+            const base = baseByCurrency.rows.find((r) => r.currency === currency);
+            const total = hakEdisByCurrency.rows.find((r) => r.currency === currency);
+            const paid = paidByCurrency.rows.find((r) => r.currency === currency);
+            const baseAmount = parseFloat(base?.base_amount || 0) || 0;
+            const totalHakedis = parseFloat(total?.total_hakedis || 0) || 0;
+            const paidAmount = parseFloat(paid?.paid_amount || 0) || 0;
+            byCurrency[currency] = {
+                baseAmount,
+                totalHakedis,
+                paidAmount,
+                remainingAmount: totalHakedis - paidAmount,
+            };
+        });
+
+        // Kaan payment history (include currency for display)
         const paymentsResult = await query(`
-            SELECT expense_id, date, amount, description, vendor_name
+            SELECT expense_id, date, amount, description, vendor_name, currency
             FROM expenses
             WHERE UPPER(primary_tag) = 'KAAN_ODEME'
             ORDER BY date DESC
         `);
-        
-        const baseAmount = parseFloat(baseResult.rows[0].base_amount) || 0;
-        const totalHakedis = parseFloat(hakEdisResult.rows[0].total_hakedis) || 0;
-        const paidAmount = parseFloat(paidResult.rows[0].paid_amount) || 0;
+
+        // Legacy flat totals (sum across currencies) for backward compatibility
+        const baseAmount = Object.values(byCurrency).reduce((s, c) => s + c.baseAmount, 0);
+        const totalHakedis = Object.values(byCurrency).reduce((s, c) => s + c.totalHakedis, 0);
+        const paidAmount = Object.values(byCurrency).reduce((s, c) => s + c.paidAmount, 0);
         const remainingAmount = totalHakedis - paidAmount;
-        
+
         res.json({
             success: true,
             data: {
@@ -179,9 +248,10 @@ router.get('/hakedis-summary', authenticate, requireAuthenticated, async (req, r
                     totalHakedis,
                     paidAmount,
                     remainingAmount,
+                    byCurrency,
                 },
-                payments: paymentsResult.rows
-            }
+                payments: paymentsResult.rows,
+            },
         });
     } catch (error) {
         console.error('[Expenses] Hakedis summary error:', error);

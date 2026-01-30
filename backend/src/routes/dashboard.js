@@ -57,13 +57,13 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
             ORDER BY total_spend DESC
         `);
 
-        // Total Paid Hak Ediş (realized) by currency
+        // Ödenen Hak Ediş: Kaan'a yapılan ödemeler (KAAN_ODEME kategorisi)
         const paidHakEdisResult = await query(`
             SELECT 
                 currency,
-                COALESCE(SUM(hak_edis_amount), 0) as paid_hak_edis
+                COALESCE(SUM(amount), 0) as paid_hak_edis
             FROM expenses
-            WHERE is_hak_edis_eligible = true
+            WHERE UPPER(primary_tag) = 'KAAN_ODEME'
             GROUP BY currency
         `);
 
@@ -414,6 +414,7 @@ router.get('/alerts', authenticate, requireAuthenticated, async (req, res) => {
                 a.*,
                 e.vendor_name as expense_vendor,
                 e.amount as expense_amount,
+                e.currency as expense_currency,
                 e.date as expense_date
             FROM alerts a
             LEFT JOIN expenses e ON a.expense_id = e.expense_id

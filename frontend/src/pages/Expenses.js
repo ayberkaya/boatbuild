@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { expensesAPI } from '../api/client';
+import { formatCurrency, formatCurrencyMulti } from '../utils/currency';
 import {
   Plus,
   Filter,
@@ -84,6 +85,25 @@ const getBaslikFromTag = (primaryTag) => {
   return { baslik: 'Diğer', kategori: primaryTag };
 };
 
+// Başlık -> which primary_tag prefixes/specific tags belong (for filtering category list)
+const BASLIK_TAG_PREDICATE = {
+  'İmalat': (tag) => {
+    const t = (tag || '').toUpperCase();
+    return t.startsWith('IMALAT') || ['MOTOR', 'KAAN_ODEME', 'ETKIN'].includes(t);
+  },
+  'Yunanistan Kurulum': (tag) => (tag || '').toUpperCase().startsWith('YUNANISTAN'),
+  'Tersane Kurulum': (tag) => (tag || '').toUpperCase().startsWith('TERSANE'),
+  'Reklam ve Tanıtım': (tag) => (tag || '').toUpperCase() === 'REKLAM',
+  'Baran': (tag) => (tag || '').toUpperCase() === 'BARAN',
+};
+
+const categoriesForBaslik = (categories, baslik) => {
+  if (!baslik || !categories.length) return [];
+  const pred = BASLIK_TAG_PREDICATE[baslik];
+  if (!pred) return [];
+  return categories.filter((c) => pred(c.primary_tag));
+};
+
 const Expenses = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -95,15 +115,21 @@ const Expenses = () => {
     start_date: searchParams.get('start_date') || '',
     end_date: searchParams.get('end_date') || '',
     baslik: searchParams.get('baslik') || '',
+    primary_tag: searchParams.get('primary_tag') || '',
+    category_id: searchParams.get('category_id') || '',
+    vendor_id: searchParams.get('vendor_id') || '',
+    vendor_name: searchParams.get('vendor_name') || '',
     is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
+    unassigned: searchParams.get('unassigned') || '',
   });
+  const [categories, setCategories] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [totals, setTotals] = useState({
-    totalAmount: 0,
-    eligibleAmount: 0,
-    totalHakedis: 0,
+    byCurrency: {},
+    eligibleByCurrency: {},
+    hakedisByCurrency: {},
   });
 
   useEffect(() => {
@@ -111,11 +137,28 @@ const Expenses = () => {
   }, []);
 
   useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await expensesAPI.categories();
+        setCategories(res.data?.data?.categories || []);
+      } catch (e) {
+        console.error('Failed to load categories', e);
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
     const urlFilters = {
       start_date: searchParams.get('start_date') || '',
       end_date: searchParams.get('end_date') || '',
       baslik: searchParams.get('baslik') || '',
+      primary_tag: searchParams.get('primary_tag') || '',
+      category_id: searchParams.get('category_id') || '',
+      vendor_id: searchParams.get('vendor_id') || '',
+      vendor_name: searchParams.get('vendor_name') || '',
       is_hak_edis_eligible: searchParams.get('is_hak_edis_eligible') || '',
+      unassigned: searchParams.get('unassigned') || '',
     };
     setFilters(urlFilters);
   }, [searchParams]);
@@ -124,19 +167,43 @@ const Expenses = () => {
     fetchExpenses();
   }, [pagination.page, filters]);
 
+  const updateFilter = (key, value) => {
+    const cleared = key === 'baslik' ? { primary_tag: '', category_id: '' } : {};
+    setFilters(prev => ({
+      ...prev,
+      [key]: value,
+      ...cleared,
+    }));
+    setPagination(prev => (prev.page === 1 ? prev : { ...prev, page: 1 }));
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value); else next.delete(key);
+    if (key === 'baslik') {
+      next.delete('primary_tag');
+      next.delete('category_id');
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   const fetchTotals = async () => {
     try {
-      // Fetch all expenses to calculate system-wide totals
       const response = await expensesAPI.list({ limit: 10000 });
       const allExpenses = response.data.data.expenses;
-      
-      const totalAmount = allExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-      const eligibleAmount = allExpenses
-        .filter(e => e.is_hak_edis_eligible)
-        .reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-      const totalHakedis = allExpenses.reduce((sum, e) => sum + parseFloat(e.hak_edis_amount || 0), 0);
-      
-      setTotals({ totalAmount, eligibleAmount, totalHakedis });
+
+      const byCurrency = {};
+      const eligibleByCurrency = {};
+      const hakedisByCurrency = {};
+      allExpenses.forEach((e) => {
+        const c = e.currency || 'TRY';
+        const amt = parseFloat(e.amount || 0);
+        const hak = parseFloat(e.hak_edis_amount || 0);
+        if (!byCurrency[c]) byCurrency[c] = 0;
+        if (!eligibleByCurrency[c]) eligibleByCurrency[c] = 0;
+        if (!hakedisByCurrency[c]) hakedisByCurrency[c] = 0;
+        byCurrency[c] += amt;
+        if (e.is_hak_edis_eligible) eligibleByCurrency[c] += amt;
+        hakedisByCurrency[c] += hak;
+      });
+      setTotals({ byCurrency, eligibleByCurrency, hakedisByCurrency });
     } catch (error) {
       console.error('Failed to fetch totals:', error);
     }
@@ -155,8 +222,10 @@ const Expenses = () => {
       if (filters.end_date) params.end_date = filters.end_date;
       if (filters.is_hak_edis_eligible) params.is_hak_edis_eligible = filters.is_hak_edis_eligible;
       
-      // Map baslik filter to primary_tag prefix
-      if (filters.baslik) {
+      // primary_tag from URL (e.g. KAAN_ODEME) or map baslik to primary_tag
+      if (filters.primary_tag) {
+        params.primary_tag = filters.primary_tag;
+      } else if (filters.baslik) {
         const baslikTagMap = {
           'İmalat': 'IMALAT',
           'Yunanistan Kurulum': 'YUNANISTAN',
@@ -166,7 +235,10 @@ const Expenses = () => {
         };
         params.primary_tag = baslikTagMap[filters.baslik] || '';
       }
-      
+      if (filters.unassigned === 'true') params.unassigned = 'true';
+      if (filters.category_id) params.category_id = filters.category_id;
+      if (filters.vendor_id) params.vendor_id = filters.vendor_id;
+
       const response = await expensesAPI.list(params);
       setExpenses(response.data.data.expenses);
       setPagination(prev => ({ ...prev, ...response.data.data.pagination }));
@@ -175,15 +247,6 @@ const Expenses = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatCurrency = (amount, currency = 'USD') => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
   };
 
   const formatDate = (dateStr) => {
@@ -231,16 +294,42 @@ const Expenses = () => {
         </Link>
       </div>
 
+      {/* Vendor filter banner - from /vendors card click */}
+      {filters.vendor_id && (
+        <div className="card border border-primary-200 bg-primary-50 flex items-center justify-between">
+          <p className="text-sm text-text-secondary">
+            <strong>Tedarikçi:</strong> Sadece <strong>{decodeURIComponent(filters.vendor_name || '') || 'bu tedarikçi'}</strong> giderleri gösteriliyor.
+          </p>
+          <Link to="/expenses" className="btn-outline text-sm">Tüm giderler</Link>
+        </div>
+      )}
+      {/* Unassigned filter banner - matches /vendors "Diğer / Atanmamış" */}
+      {filters.unassigned === 'true' && (
+        <div className="card border-dashed border-2 border-gray-200 bg-gray-50 flex items-center justify-between">
+          <p className="text-sm text-text-secondary">
+            <strong>Diğer / Atanmamış:</strong> Sadece tedarikçi eşleşmeyen giderler gösteriliyor (Tedarikçiler sayfasındaki liste ile aynı).
+          </p>
+          <Link to="/expenses" className="btn-outline text-sm">Tüm giderler</Link>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 text-text-secondary hover:text-text"
-          >
-            <Filter className="w-5 h-5" />
-            Filtreler
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 text-text-secondary hover:text-text"
+            >
+              <Filter className="w-5 h-5" />
+              Filtreler
+            </button>
+            {filters.primary_tag === 'KAAN_ODEME' && (
+              <span className="text-sm px-2 py-1 rounded bg-green-100 text-green-800">
+                Kaan Ödemeler
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-text-secondary">
               Toplam: {pagination.total} gider
@@ -255,7 +344,7 @@ const Expenses = () => {
               <input
                 type="date"
                 value={filters.start_date}
-                onChange={(e) => setFilters({ ...filters, start_date: e.target.value })}
+                onChange={(e) => updateFilter('start_date', e.target.value)}
                 className="input"
               />
             </div>
@@ -264,7 +353,7 @@ const Expenses = () => {
               <input
                 type="date"
                 value={filters.end_date}
-                onChange={(e) => setFilters({ ...filters, end_date: e.target.value })}
+                onChange={(e) => updateFilter('end_date', e.target.value)}
                 className="input"
               />
             </div>
@@ -272,7 +361,7 @@ const Expenses = () => {
               <label className="label">Başlık</label>
               <select
                 value={filters.baslik}
-                onChange={(e) => setFilters({ ...filters, baslik: e.target.value })}
+                onChange={(e) => updateFilter('baslik', e.target.value)}
                 className="select"
               >
                 <option value="">Tümü</option>
@@ -284,10 +373,27 @@ const Expenses = () => {
               </select>
             </div>
             <div>
+              <label className="label">Kategori</label>
+              <select
+                value={filters.category_id}
+                onChange={(e) => updateFilter('category_id', e.target.value)}
+                className="select"
+                disabled={!filters.baslik}
+                title={!filters.baslik ? 'Önce başlık seçin' : undefined}
+              >
+                <option value="">
+                  {filters.baslik ? 'Tümü' : 'Önce başlık seçin'}
+                </option>
+                {categoriesForBaslik(categories, filters.baslik).map((c) => (
+                  <option key={c.category_id} value={c.category_id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="label">Kaan Hakediş</label>
               <select
                 value={filters.is_hak_edis_eligible}
-                onChange={(e) => setFilters({ ...filters, is_hak_edis_eligible: e.target.value })}
+                onChange={(e) => updateFilter('is_hak_edis_eligible', e.target.value)}
                 className="select"
               >
                 <option value="">Tümü</option>
@@ -303,15 +409,27 @@ const Expenses = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Gider</p>
-          <p className="text-2xl font-bold text-primary">{formatCurrency(totals.totalAmount)}</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(totals.byCurrency || {}).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-primary money">{formatted}</p>
+            ))}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Hakediş Matrahı</p>
-          <p className="text-2xl font-bold text-green-600">{formatCurrency(totals.eligibleAmount)}</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(totals.eligibleByCurrency || {}).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-green-600 money">{formatted}</p>
+            ))}
+          </div>
         </div>
         <div className="card">
           <p className="text-sm text-text-secondary">Toplam Hakediş (%7)</p>
-          <p className="text-2xl font-bold text-blue-600">{formatCurrency(totals.totalHakedis)}</p>
+          <div className="space-y-1">
+            {formatCurrencyMulti(totals.hakedisByCurrency || {}).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-blue-600 money">{formatted}</p>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -457,7 +575,7 @@ const Expenses = () => {
               <p className="text-sm text-text-secondary mb-2">Silinecek gider:</p>
               <p className="font-medium text-text">{deleteConfirm.vendor_name}</p>
               <p className="text-sm text-text-muted mt-1">
-                {formatDate(deleteConfirm.date)} • {formatCurrency(deleteConfirm.amount, deleteConfirm.currency)}
+                {formatDate(deleteConfirm.date)} • {formatCurrency(deleteConfirm.amount, deleteConfirm.currency || 'TRY')}
               </p>
             </div>
 
