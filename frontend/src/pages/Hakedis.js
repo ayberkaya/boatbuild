@@ -123,15 +123,35 @@ const Hakedis = () => {
         <p className="text-text-secondary">İmalat giderleri üzerinden %7 hakediş özeti</p>
       </div>
 
-      {/* Primary: Hakediş Matrahı / Ödenen Bakiye / Kalan Bakiye */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Hakediş Matrahı (toplam ortaya çıkan hakediş) */}
+      {/* Primary: Hakediş Matrahı / Toplam Hakediş / Ödenen Bakiye / Kalan Bakiye */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Hakediş Matrahı (komisyonun hesaplanacağı toplam tutar) */}
+        <div className="card border-2 border-blue-200 bg-blue-50/50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+            </div>
+            <span className="text-sm text-text-secondary">Hakediş Matrahı</span>
+          </div>
+          <div className="space-y-1">
+            {formatCurrencyMulti(
+              Object.fromEntries(
+                Object.entries(summary.byCurrency || {}).map(([c, v]) => [c, v.baseAmount])
+              )
+            ).map((formatted, i) => (
+              <p key={i} className="text-2xl font-bold text-blue-700 money">{formatted}</p>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted mt-1">Komisyonun hesaplanacağı toplam tutar</p>
+        </div>
+
+        {/* Toplam Hakediş (ortaya çıkan toplam hakediş) */}
         <div className="card border-2 border-green-200 bg-green-50/50">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-green-100 rounded-lg">
               <Percent className="w-5 h-5 text-green-600" />
             </div>
-            <span className="text-sm text-text-secondary">Hakediş Matrahı</span>
+            <span className="text-sm text-text-secondary">Toplam Hakediş</span>
           </div>
           <div className="space-y-1">
             {formatCurrencyMulti(
@@ -242,7 +262,7 @@ const Hakedis = () => {
             <span className="font-medium">%7</span>
           </div>
           <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-text-secondary">Hakediş Matrahı (toplam ortaya çıkan hakediş)</span>
+            <span className="text-text-secondary">Toplam Hakediş (ortaya çıkan hakediş)</span>
             <span className="font-medium text-green-600 text-right">
               {formatCurrencyMulti(
                 Object.fromEntries(
@@ -326,7 +346,7 @@ const Hakedis = () => {
           <li>• Sadece &quot;Kaan Hakediş = Evet&quot; olan giderler hakedişe esas gider toplamını oluşturur; toplam × %7 = Hakediş Matrahı</li>
           <li>• Hakediş matrahı ortaya çıkar; ödemesi ayrıca yapılır. Ödemeyi girmek için &quot;Hakediş ödemesi gir&quot; ile gider ekleyin, Başlık: İmalat, Kategori: Kaan Ödeme seçin</li>
           <li>• Ödenen bakiye = Kaan Ödemeler kategorisindeki giderler toplamı</li>
-          <li>• Kalan bakiye = Hakediş Matrahı − Ödenen Bakiye</li>
+          <li>• Kalan bakiye = Toplam Hakediş − Ödenen Bakiye</li>
         </ul>
       </div>
     </div>
