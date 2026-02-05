@@ -36,9 +36,20 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
 
         if (search) {
             paramCount++;
-            whereClause += ` AND ILIKE(title, $${paramCount})`;
-            whereClause = whereClause.replace(`ILIKE(title, $${paramCount})`, `title ILIKE $${paramCount}`);
+            whereClause += ` AND title ILIKE $${paramCount}`;
             params.push(`%${search}%`);
+        }
+
+        // Filter by type
+        if (req.query.type) {
+            paramCount++;
+            whereClause += ` AND type = $${paramCount}`;
+            params.push(req.query.type);
+        } else if (req.query.exclude_type) {
+            // Optional: Allow excluding a type (e.g. exclude installments)
+            paramCount++;
+            whereClause += ` AND (type != $${paramCount} OR type IS NULL)`;
+            params.push(req.query.exclude_type);
         }
 
         const validSortFields = ['date', 'amount', 'title', 'created_at', 'status'];

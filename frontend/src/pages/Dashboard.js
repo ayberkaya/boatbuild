@@ -234,9 +234,9 @@ const Dashboard = () => {
           onClick={() => navigate('/expenses')}
         />
 
-        {/* Card 2: Gelecek Harcamalar (Installments Only) */}
+        {/* Card 2: Gelecek Taksitler (Installments Only) */}
         <KPICard
-          title="Gelecek Harcamalar"
+          title="Gelecek Taksitler"
           value={formatCurrencyMulti(kpis?.future_installments)}
           subtitle="Taksitli ödemeler"
           icon={Calendar}

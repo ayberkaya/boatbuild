@@ -8,11 +8,14 @@ const FutureExpenses = () => {
     const [loading, setLoading] = useState(true);
     const [totals, setTotals] = useState({ totalAmount: 0 });
 
+    const [activeTab, setActiveTab] = useState('general'); // 'general' or 'installments'
+
     // Filters & Sorting
     const [filters, setFilters] = useState({
         search: '',
         sort_by: 'date',
-        sort_order: 'ASC'
+        sort_order: 'ASC',
+        exclude_type: 'INSTALLMENT' // Default to hiding installments in 'general' view
     });
 
     // Modal State
@@ -57,6 +60,23 @@ const FutureExpenses = () => {
     const handleSearch = (e) => {
         const value = e.target.value;
         setFilters(prev => ({ ...prev, search: value }));
+    };
+
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        if (tab === 'installments') {
+            setFilters(prev => ({
+                ...prev,
+                type: 'INSTALLMENT',
+                exclude_type: undefined
+            }));
+        } else {
+            setFilters(prev => ({
+                ...prev,
+                type: undefined,
+                exclude_type: 'INSTALLMENT'
+            }));
+        }
     };
 
     const openModal = (expense = null) => {
@@ -154,6 +174,28 @@ const FutureExpenses = () => {
                 >
                     <Plus className="w-5 h-5" />
                     Yeni Kalem Ekle
+                </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gray-200 mb-4">
+                <button
+                    className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === 'general'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-text-secondary hover:text-text'
+                        }`}
+                    onClick={() => handleTabChange('general')}
+                >
+                    Genel Plan
+                </button>
+                <button
+                    className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === 'installments'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-text-secondary hover:text-text'
+                        }`}
+                    onClick={() => handleTabChange('installments')}
+                >
+                    Gelecek Taksitler
                 </button>
             </div>
 
