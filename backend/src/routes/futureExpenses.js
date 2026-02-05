@@ -4,7 +4,7 @@
  */
 
 const express = require('express');
-const { body, query: checkQuery, validationResult } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 const { query, transaction } = require('../db/connection');
 const { authenticate, requireAuthenticated } = require('../middleware/auth');
 

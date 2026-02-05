@@ -30,11 +30,7 @@ const FutureExpenses = () => {
     });
     const [formLoading, setFormLoading] = useState(false);
 
-    useEffect(() => {
-        fetchExpenses();
-    }, [filters]);
-
-    const fetchExpenses = async () => {
+    const fetchExpenses = React.useCallback(async () => {
         try {
             setLoading(true);
             const response = await futureExpensesAPI.list(filters);
@@ -47,7 +43,11 @@ const FutureExpenses = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [filters]);
+
+    useEffect(() => {
+        fetchExpenses();
+    }, [fetchExpenses]);
 
     const handleSort = (field) => {
         setFilters(prev => ({
