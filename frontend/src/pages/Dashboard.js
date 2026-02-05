@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { dashboardAPI } from '../api/client';
+import { dashboardAPI, futureExpensesAPI } from '../api/client';
 import { formatCurrency, formatCurrencyMulti } from '../utils/currency';
 import AlertItem from '../components/AlertItem';
 import {
@@ -38,7 +38,7 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
   };
 
   return (
-    <div 
+    <div
       className={`card ${variants[variant]} ${onClick ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
       onClick={onClick}
     >
@@ -73,9 +73,8 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
         )}
       </div>
       {trend && (
-        <div className={`flex items-center gap-1 mt-3 text-sm ${
-          trend === 'up' ? 'text-success' : 'text-danger'
-        }`}>
+        <div className={`flex items-center gap-1 mt-3 text-sm ${trend === 'up' ? 'text-success' : 'text-danger'
+          }`}>
           {trend === 'up' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
           <span>{trendValue}</span>
         </div>
@@ -86,39 +85,39 @@ const KPICard = ({ title, value, subtitle, icon: Icon, trend, trendValue, varian
 
 // Başlık configuration with icons and colors
 const BASLIK_CONFIG = {
-  'İmalat': { 
-    icon: Wrench, 
-    color: 'bg-green-50 border-green-200', 
+  'İmalat': {
+    icon: Wrench,
+    color: 'bg-green-50 border-green-200',
     iconColor: 'text-green-600',
     filter: 'baslik=İmalat'
   },
-  'Yunanistan Kurulum': { 
-    icon: Ship, 
-    color: 'bg-blue-50 border-blue-200', 
+  'Yunanistan Kurulum': {
+    icon: Ship,
+    color: 'bg-blue-50 border-blue-200',
     iconColor: 'text-blue-600',
     filter: 'baslik=Yunanistan'
   },
-  'Tersane Kurulum': { 
-    icon: Building2, 
-    color: 'bg-orange-50 border-orange-200', 
+  'Tersane Kurulum': {
+    icon: Building2,
+    color: 'bg-orange-50 border-orange-200',
     iconColor: 'text-orange-600',
     filter: 'baslik=Tersane'
   },
-  'Reklam ve Tanıtım': { 
-    icon: Megaphone, 
-    color: 'bg-yellow-50 border-yellow-200', 
+  'Reklam ve Tanıtım': {
+    icon: Megaphone,
+    color: 'bg-yellow-50 border-yellow-200',
     iconColor: 'text-yellow-600',
     filter: 'primary_tag=REKLAM'
   },
-  'Baran': { 
-    icon: User, 
-    color: 'bg-purple-50 border-purple-200', 
+  'Baran': {
+    icon: User,
+    color: 'bg-purple-50 border-purple-200',
     iconColor: 'text-purple-600',
     filter: 'primary_tag=BARAN'
   },
-  'Diğer': { 
-    icon: MoreHorizontal, 
-    color: 'bg-gray-50 border-gray-200', 
+  'Diğer': {
+    icon: MoreHorizontal,
+    color: 'bg-gray-50 border-gray-200',
     iconColor: 'text-gray-600',
     filter: ''
   },
@@ -130,7 +129,7 @@ const CategorySpendCard = ({ baslik, data, formatCurrencyMulti, onClick }) => {
   const Icon = config.icon;
 
   return (
-    <div 
+    <div
       className={`p-4 rounded-lg border ${config.color} ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
       onClick={onClick}
     >
@@ -166,6 +165,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [futureExpenseTotal, setFutureExpenseTotal] = useState(0);
 
   useEffect(() => {
     fetchDashboardData();
@@ -174,13 +174,20 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [kpisRes, alertsRes] = await Promise.all([
+      const [kpisRes, alertsRes, futureRes] = await Promise.all([
         dashboardAPI.kpis(),
         dashboardAPI.alerts(),
+        futureExpensesAPI.list().catch(err => ({ data: { success: false } })),
       ]);
 
       setKpis(kpisRes.data.data);
       setAlerts(alertsRes.data.data.alerts);
+
+      if (kpisRes.data.data.planned_future_expenses !== undefined) {
+        setFutureExpenseTotal(kpisRes.data.data.planned_future_expenses);
+      } else if (futureRes && futureRes.data && futureRes.data.success) {
+        setFutureExpenseTotal(futureRes.data.data.totals.totalAmount);
+      }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
     } finally {
@@ -219,26 +226,43 @@ const Dashboard = () => {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Toplam Harcama (All Expenses) */}
         <KPICard
           title="Toplam Harcama"
           value={formatCurrencyMulti(kpis?.total_spend)}
           icon={DollarSign}
           onClick={() => navigate('/expenses')}
         />
+
+        {/* Card 2: Gelecek Harcamalar (Installments Only) */}
         <KPICard
           title="Gelecek Harcamalar"
-          value={formatCurrencyMulti(kpis?.future_expenses)}
+          value={formatCurrencyMulti(kpis?.future_installments)}
+          subtitle="Taksitli ödemeler"
           icon={Calendar}
           variant="warning"
-          onClick={() => navigate('/transfers?status=PENDING')}
+          onClick={() => navigate('/future-expenses')}
         />
-        {/* Gelecekteki Gider Akışı - placeholder for future data */}
-        <div className="card bg-primary text-white">
+
+        {/* Card 3: Gelecekteki Gider Akışı (Total Projected) */}
+        <div className="card bg-primary text-white" onClick={() => navigate('/future-expenses')} role="button">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium opacity-80">Gelecekteki Gider Akışı</p>
-              <p className="text-2xl font-bold mt-1 money">--</p>
-              <p className="text-sm mt-1 opacity-70">Veri bekleniyor</p>
+              <div className="mt-1">
+                {kpis?.future_flow ? (
+                  <div className="text-2xl font-bold money">
+                    {formatCurrencyMulti(kpis.future_flow).map((val, idx) => (
+                      <div key={idx}>{val}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold mt-1 money">{formatCurrency(0, 'EUR')}</p>
+                )}
+              </div>
+              <p className="text-sm mt-1 opacity-70">
+                Planlanan tüm nakit çıkışı
+              </p>
             </div>
             <div className="p-3 rounded-lg bg-white/20">
               <TrendingUp className="w-6 h-6 text-white" />
@@ -271,7 +295,7 @@ const Dashboard = () => {
                 />
               ))}
             {/* Ödenen Hak Ediş Card (Kaan'a yapılan ödemeler) */}
-            <div 
+            <div
               className="p-4 rounded-lg border bg-green-50 border-green-200 cursor-pointer hover:shadow-md transition-shadow"
               onClick={() => navigate('/expenses?primary_tag=KAAN_ODEME')}
             >

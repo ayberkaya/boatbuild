@@ -6,10 +6,10 @@
 const express = require('express');
 const { query } = require('../db/connection');
 const { authenticate, requireAuthenticated, requireOwner } = require('../middleware/auth');
-const { 
-    calculateHakEdisExposure, 
+const {
+    calculateHakEdisExposure,
     getProjectionCategories,
-    HAK_EDIS_RATE 
+    HAK_EDIS_RATE
 } = require('../engine/hakEdisEngine');
 
 const router = express.Router();
@@ -96,8 +96,8 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
                 (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE linked_transfer_id IS NOT NULL) as linked_expense_total
         `);
 
-        const mismatch = parseFloat(mismatchResult.rows[0].total_transfers) - 
-                         parseFloat(mismatchResult.rows[0].linked_expense_total);
+        const mismatch = parseFloat(mismatchResult.rows[0].total_transfers) -
+            parseFloat(mismatchResult.rows[0].linked_expense_total);
 
         // Pending approvals count and future expenses by currency
         const pendingApprovalsResult = await query(`
@@ -106,11 +106,22 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
                 (SELECT COUNT(*) FROM hak_edis_overrides WHERE status = 'PENDING') as pending_overrides
         `);
 
-        const futureExpensesResult = await query(`
+        // Card 2: Future Installments (type = 'INSTALLMENT')
+        const installmentsResult = await query(`
             SELECT 
                 currency,
-                COALESCE(SUM(amount), 0) as future_expenses
-            FROM transfers
+                COALESCE(SUM(amount), 0) as total
+            FROM future_expenses
+            WHERE status = 'PENDING' AND type = 'INSTALLMENT'
+            GROUP BY currency
+        `);
+
+        // Card 3: Total Future Projection (All PENDING)
+        const totalFutureResult = await query(`
+            SELECT 
+                currency,
+                COALESCE(SUM(amount), 0) as total
+            FROM future_expenses
             WHERE status = 'PENDING'
             GROUP BY currency
         `);
@@ -121,22 +132,16 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
             totalSpendByCurrency[row.currency] = parseFloat(row.total_spend);
         });
 
-        const paidHakEdisByCurrency = {};
-        paidHakEdisResult.rows.forEach(row => {
-            paidHakEdisByCurrency[row.currency] = parseFloat(row.paid_hak_edis);
+        const installmentsByCurrency = {};
+        installmentsResult.rows.forEach(row => {
+            installmentsByCurrency[row.currency] = parseFloat(row.total);
         });
 
-        const potentialByCurrency = {};
-        potentialResult.rows.forEach(row => {
-            potentialByCurrency[row.currency] = parseFloat(row.potential_hak_edis);
+        const totalFutureByCurrency = {};
+        totalFutureResult.rows.forEach(row => {
+            totalFutureByCurrency[row.currency] = parseFloat(row.total);
         });
 
-        const futureExpensesByCurrency = {};
-        futureExpensesResult.rows.forEach(row => {
-            futureExpensesByCurrency[row.currency] = parseFloat(row.future_expenses);
-        });
-
-        // Process spend by başlık with currency breakdown
         const spendByBaslik = {};
         spendByBaslikResult.rows.forEach(row => {
             if (!spendByBaslik[row.baslik]) {
@@ -149,10 +154,28 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
             spendByBaslik[row.baslik].expense_count += parseInt(row.expense_count);
         });
 
+        // Helper for backwards compat single value if needed (using EUR mostly for future)
+        const totalPlannedFutureExpenses = parseFloat(totalFutureByCurrency['EUR'] || 0);
+
+        // ... existing legacy code ...
+        const paidHakEdisByCurrency = {};
+        paidHakEdisResult.rows.forEach(row => {
+            paidHakEdisByCurrency[row.currency] = parseFloat(row.paid_hak_edis);
+        });
+
+        const potentialByCurrency = {};
+        potentialResult.rows.forEach(row => {
+            potentialByCurrency[row.currency] = parseFloat(row.potential_hak_edis);
+        });
+
         res.json({
             success: true,
             data: {
-                total_spend: totalSpendByCurrency,
+                total_spend: totalSpendByCurrency, // Card 1: /expenses total
+                future_installments: installmentsByCurrency, // Card 2: Installments only
+                future_flow: totalFutureByCurrency, // Card 3: All future flow
+
+                // Legacy fields to be safe
                 paid_hak_edis: paidHakEdisByCurrency,
                 remaining_potential: potentialByCurrency,
                 conditional_exposure: parseFloat(conditionalResult.rows[0].conditional_exposure),
@@ -160,7 +183,7 @@ router.get('/kpis', authenticate, requireAuthenticated, async (req, res) => {
                 transfer_expense_mismatch: mismatch,
                 pending_transfers: parseInt(pendingApprovalsResult.rows[0].pending_transfers),
                 pending_overrides: parseInt(pendingApprovalsResult.rows[0].pending_overrides),
-                future_expenses: futureExpensesByCurrency,
+                planned_future_expenses: totalPlannedFutureExpenses,
                 spend_by_baslik: spendByBaslik
             }
         });
@@ -281,7 +304,7 @@ router.get('/tables/realized-hak-edis', authenticate, requireAuthenticated, asyn
             ORDER BY total_hak_edis DESC
         `);
 
-        const totalHakEdis = result.rows.reduce((sum, row) => 
+        const totalHakEdis = result.rows.reduce((sum, row) =>
             sum + parseFloat(row.total_hak_edis), 0);
 
         res.json({
@@ -325,7 +348,7 @@ router.get('/tables/future-projection', authenticate, requireAuthenticated, asyn
         // Map results to projection categories with currency breakdown
         const projection = projectionCategories.map(category => {
             const categoryStats = result.rows.filter(r => r.primary_tag === category.tag);
-            
+
             // Aggregate by currency
             const byCurrency = {};
             categoryStats.forEach(stat => {
@@ -521,12 +544,12 @@ router.get('/hak-edis-rate-check', authenticate, requireOwner, async (req, res) 
         `);
 
         const rates = result.rows;
-        
+
         let warning = null;
         if (rates.length >= 2) {
             const lastMonthRate = parseFloat(rates[0]?.rate || 0);
             const previousAvg = rates.slice(1).reduce((sum, r) => sum + parseFloat(r.rate || 0), 0) / (rates.length - 1);
-            
+
             // If last month is 20% higher than average, flag it
             if (lastMonthRate > previousAvg * 1.2 && previousAvg > 0) {
                 warning = {

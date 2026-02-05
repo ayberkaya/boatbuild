@@ -13,11 +13,12 @@ import Dashboard from './pages/Dashboard';
 import Expenses from './pages/Expenses';
 import ExpenseForm from './pages/ExpenseForm';
 import Hakedis from './pages/Hakedis';
-import Transfers from './pages/Transfers';
-import TransferForm from './pages/TransferForm';
+
 import Vendors from './pages/Vendors';
 import Documents from './pages/Documents';
+
 import Settings from './pages/Settings';
+import FutureExpenses from './pages/FutureExpenses';
 
 // Layout
 import Layout from './components/Layout';
@@ -72,11 +73,10 @@ const AppRoutes = () => {
         <Route path="expenses/new" element={<ExpenseForm />} />
         <Route path="expenses/:id" element={<ExpenseForm />} />
         <Route path="hakedis" element={<Hakedis />} />
-        <Route path="transfers" element={<Transfers />} />
-        <Route path="transfers/new" element={<TransferForm />} />
-        <Route path="transfers/:id" element={<TransferForm />} />
+
         <Route path="vendors" element={<Vendors />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="future-expenses" element={<FutureExpenses />} />
         <Route path="settings" element={<Settings />} />
       </Route>
 

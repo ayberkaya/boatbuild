@@ -131,7 +131,16 @@ export const dashboardAPI = {
   futureProjection: () => client.get('/dashboard/tables/future-projection'),
   alerts: () => client.get('/dashboard/alerts'),
   resolveAlert: (id, notes) => client.post(`/dashboard/alerts/${id}/resolve`, { notes }),
+  resolveAlert: (id, notes) => client.post(`/dashboard/alerts/${id}/resolve`, { notes }),
   rateCheck: () => client.get('/dashboard/hak-edis-rate-check'),
+};
+
+// Future Expenses API
+export const futureExpensesAPI = {
+  list: (params) => client.get('/future-expenses', { params }),
+  create: (data) => client.post('/future-expenses', data),
+  update: (id, data) => client.put(`/future-expenses/${id}`, data),
+  delete: (id) => client.delete(`/future-expenses/${id}`),
 };
 
 // Data export/import (round-trip CSV ZIP)

@@ -17,6 +17,7 @@ const overrideRoutes = require('./routes/overrides');
 const documentRoutes = require('./routes/documents');
 const vendorRoutes = require('./routes/vendors');
 const dashboardRoutes = require('./routes/dashboard');
+const futureExpensesRoutes = require('./routes/futureExpenses');
 const dataExportImportRoutes = require('./routes/dataExportImport');
 
 const app = express();
@@ -25,7 +26,7 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 // CORS: Allow localhost and local network IPs in development
 const corsOrigin = process.env.CORS_ORIGIN;
-const allowedOrigins = corsOrigin 
+const allowedOrigins = corsOrigin
     ? corsOrigin.split(',').map(o => o.trim())
     : process.env.NODE_ENV === 'production'
         ? ['http://localhost:3000']
@@ -40,7 +41,7 @@ app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) return callback(null, true);
-        
+
         // Check if origin matches allowed patterns
         const isAllowed = allowedOrigins.some(allowed => {
             if (typeof allowed === 'string') {
@@ -51,7 +52,7 @@ app.use(cors({
             }
             return false;
         });
-        
+
         if (isAllowed) {
             callback(null, true);
         } else {
@@ -89,6 +90,7 @@ app.use('/api/overrides', overrideRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/future-expenses', futureExpensesRoutes);
 app.use('/api/data', dataExportImportRoutes);
 
 // Serve uploaded files (protected)

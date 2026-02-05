@@ -19,7 +19,9 @@ import {
   Ship,
   Bell,
   ChevronDown,
+
   Settings,
+  TrendingUp,
 } from 'lucide-react';
 
 const Layout = () => {
@@ -36,8 +38,8 @@ const Layout = () => {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/expenses', icon: Receipt, label: 'Giderler' },
+    { to: '/future-expenses', icon: TrendingUp, label: 'Gelecek Giderler' },
     { to: '/hakedis', icon: Percent, label: 'Hakediş' },
-    { to: '/transfers', icon: ArrowLeftRight, label: 'Transferler' },
     { to: '/vendors', icon: Users, label: 'Tedarikçiler' },
     { to: '/documents', icon: FileText, label: 'Belgeler' },
     { to: '/settings', icon: Settings, label: 'Ayarlar' },
@@ -55,9 +57,8 @@ const Layout = () => {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-primary transform transition-transform duration-200 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed top-0 left-0 z-50 h-full w-64 bg-primary transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-primary-700">
@@ -82,10 +83,9 @@ const Layout = () => {
               to={item.to}
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-secondary text-white'
-                    : 'text-primary-200 hover:bg-primary-800 hover:text-white'
+                `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                  ? 'bg-secondary text-white'
+                  : 'text-primary-200 hover:bg-primary-800 hover:text-white'
                 }`
               }
             >

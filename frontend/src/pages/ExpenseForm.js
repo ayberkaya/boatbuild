@@ -90,16 +90,16 @@ const getPrimaryTag = (baslik, kategori) => {
       'Genel': 'BARAN',
     },
   };
-  
+
   return tagMap[baslik]?.[kategori] || 'UNCLASSIFIED';
 };
 
 // Reverse map: primary_tag to Başlık + Kategori
 const getBaslikKategoriFromTag = (primaryTag) => {
   if (!primaryTag) return { baslik: 'İmalat', kategori: 'Genel' };
-  
+
   const tag = primaryTag.toUpperCase();
-  
+
   const reverseMap = {
     'IMALAT_GENEL': { baslik: 'İmalat', kategori: 'Genel' },
     'IMALAT_TESISAT': { baslik: 'İmalat', kategori: 'Tesisat' },
@@ -125,7 +125,7 @@ const getBaslikKategoriFromTag = (primaryTag) => {
     'REKLAM': { baslik: 'Reklam ve Tanıtım', kategori: 'Genel' },
     'BARAN': { baslik: 'Baran', kategori: 'Genel' },
   };
-  
+
   return reverseMap[tag] || { baslik: 'İmalat', kategori: 'Genel' };
 };
 
@@ -139,13 +139,14 @@ const ExpenseForm = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
-  
+
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     baslik: 'İmalat',
     kategori: presetKaanOdeme ? 'Kaan Ödeme' : 'Genel',
     amount: '',
     kime: '',
+    currency: 'USD',
     kaanHakedis: presetKaanOdeme ? false : true,
     description: '',
   });
@@ -180,14 +181,15 @@ const ExpenseForm = () => {
       setLoading(true);
       const response = await expensesAPI.get(id);
       const expense = response.data.data.expense;
-      
+
       const { baslik, kategori } = getBaslikKategoriFromTag(expense.primary_tag);
-      
+
       setFormData({
         date: expense.date.split('T')[0],
         baslik,
         kategori,
         amount: expense.amount,
+        currency: expense.currency || 'USD',
         kime: expense.vendor_name || '',
         kaanHakedis: expense.is_hak_edis_eligible,
         description: expense.description || '',
@@ -212,7 +214,7 @@ const ExpenseForm = () => {
     const newBaslik = e.target.value;
     const baslikConfig = BASLIK_KATEGORI[newBaslik] || { kategoriler: ['Genel'] };
     const firstKategori = baslikConfig.kategoriler[0] || 'Genel';
-    
+
     setFormData(prev => ({
       ...prev,
       baslik: newBaslik,
@@ -222,7 +224,7 @@ const ExpenseForm = () => {
 
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.date) newErrors.date = 'Tarih zorunludur';
     if (!formData.baslik) newErrors.baslik = 'Başlık seçimi zorunludur';
     if (!formData.kategori) newErrors.kategori = 'Kategori seçimi zorunludur';
@@ -232,38 +234,38 @@ const ExpenseForm = () => {
     if (!formData.kime || formData.kime.trim() === '') {
       newErrors.kime = 'Kime alanı zorunludur';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
-    
+
     try {
       setSaving(true);
-      
+
       const primaryTag = getPrimaryTag(formData.baslik, formData.kategori);
-      
+
       const payload = {
         date: formData.date,
         vendor_name: formData.kime,
         amount: parseFloat(formData.amount),
-        currency: 'USD',
+        currency: formData.currency,
         description: formData.description,
         primary_tag: primaryTag,
         work_scope_level: formData.kaanHakedis ? 'PURE_IMALAT' : 'NON_IMALAT',
         hak_edis_policy: formData.kaanHakedis ? 'ALWAYS_INCLUDED' : 'ALWAYS_EXCLUDED',
       };
-      
+
       if (isEditing) {
         await expensesAPI.update(id, payload);
       } else {
         await expensesAPI.create(payload);
       }
-      
+
       navigate('/expenses');
     } catch (error) {
       console.error('Failed to save expense:', error);
@@ -318,7 +320,7 @@ const ExpenseForm = () => {
   };
 
   // Calculate hak ediş preview
-  const hakEdisAmount = formData.kaanHakedis && formData.amount 
+  const hakEdisAmount = formData.kaanHakedis && formData.amount
     ? (parseFloat(formData.amount) * 0.07).toFixed(2)
     : 0;
 
@@ -415,19 +417,31 @@ const ExpenseForm = () => {
             {errors.kategori && <p className="text-sm text-red-500 mt-1">{errors.kategori}</p>}
           </div>
 
-          {/* Tutar */}
+          {/* Tutar ve Para Birimi */}
           <div>
-            <label className="label">Tutar (USD) *</label>
-            <input
-              type="number"
-              name="amount"
-              value={formData.amount}
-              onChange={handleInputChange}
-              className={`input ${errors.amount ? 'border-red-500' : ''}`}
-              placeholder="0"
-              step="1"
-              min="0"
-            />
+            <label className="label">Tutar *</label>
+            <div className="flex gap-2">
+              <select
+                name="currency"
+                value={formData.currency}
+                onChange={handleInputChange}
+                className="select w-24 flex-shrink-0"
+              >
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="TRY">TRY</option>
+              </select>
+              <input
+                type="number"
+                name="amount"
+                value={formData.amount}
+                onChange={handleInputChange}
+                className={`input flex-1 ${errors.amount ? 'border-red-500' : ''}`}
+                placeholder="0.00"
+                step="0.01"
+                min="0"
+              />
+            </div>
             {errors.amount && <p className="text-sm text-red-500 mt-1">{errors.amount}</p>}
           </div>
 
@@ -472,7 +486,7 @@ const ExpenseForm = () => {
                 <X className="w-6 h-6 text-gray-400" />
               )}
             </div>
-            
+
             {formData.kaanHakedis && formData.amount > 0 && (
               <div className="mt-3 pt-3 border-t border-gray-200">
                 <div className="flex justify-between text-sm">

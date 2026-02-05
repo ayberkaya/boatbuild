@@ -4,7 +4,8 @@
  */
 
 const { Pool } = require('pg');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -18,7 +19,7 @@ const pool = new Pool({
 });
 
 pool.on('connect', () => {
-    console.log('[DB] Connected to PostgreSQL');
+    console.log(`[DB] Connected to PostgreSQL as ${process.env.DB_USER || 'default(postgres)'} on ${process.env.DB_NAME || 'default'}`);
 });
 
 pool.on('error', (err) => {

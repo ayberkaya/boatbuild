@@ -11,7 +11,8 @@
     "start:backend": "cd backend && npm start",
     "start:frontend": "cd frontend && npm start",
     "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "migrate": "cd backend && npm run migrate"
+    "migrate": "cd backend && npm run migrate",
+    "build": "cd frontend && npm run build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
