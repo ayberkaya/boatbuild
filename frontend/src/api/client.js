@@ -139,6 +139,7 @@ export const dashboardAPI = {
 export const futureExpensesAPI = {
   list: (params) => client.get('/future-expenses', { params }),
   create: (data) => client.post('/future-expenses', data),
+  bulkCreate: (data) => client.post('/future-expenses/bulk', data),
   update: (id, data) => client.put(`/future-expenses/${id}`, data),
   delete: (id) => client.delete(`/future-expenses/${id}`),
 };

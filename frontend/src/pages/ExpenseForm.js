@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { expensesAPI } from '../api/client';
+import { expensesAPI, futureExpensesAPI } from '../api/client';
 import {
   ArrowLeft,
   Save,
@@ -158,6 +158,53 @@ const ExpenseForm = () => {
   const [customBasliklar, setCustomBasliklar] = useState([]);
   const [customKategoriler, setCustomKategoriler] = useState({});
 
+  // Installment State
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [installmentCount, setInstallmentCount] = useState(2);
+  const [firstInstallmentDate, setFirstInstallmentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [installments, setInstallments] = useState([]);
+
+  // Generate installments when parameters change
+  useEffect(() => {
+    if (isInstallment && formData.amount && installmentCount > 0) {
+      const amount = parseFloat(formData.amount);
+      if (isNaN(amount)) return;
+
+      const perInstallment = Math.floor((amount / installmentCount) * 100) / 100;
+      const remainder = (amount * 100 - (perInstallment * 100 * installmentCount)) / 100;
+
+      const newInstallments = [];
+      let currentDate = new Date(firstInstallmentDate);
+
+      for (let i = 0; i < installmentCount; i++) {
+        // Add remainder to the last installment
+        const currentAmount = i === installmentCount - 1
+          ? (perInstallment + remainder).toFixed(2)
+          : perInstallment.toFixed(2);
+
+        newInstallments.push({
+          id: i,
+          title: `${formData.kime || 'Ödeme'} - Taksit ${i + 1}/${installmentCount}`,
+          amount: currentAmount,
+          date: currentDate.toISOString().split('T')[0],
+          currency: formData.currency
+        });
+
+        // Add 1 month for next installment
+        currentDate = new Date(currentDate); // Clone to avoid mutation issues
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+      setInstallments(newInstallments);
+    }
+  }, [isInstallment, formData.amount, formData.currency, formData.kime, installmentCount, firstInstallmentDate]);
+
+  const handleInstallmentChange = (index, field, value) => {
+    const updated = [...installments];
+    updated[index] = { ...updated[index], [field]: value };
+    setInstallments(updated);
+  };
+
+
   useEffect(() => {
     if (isEditing) {
       fetchExpense();
@@ -247,26 +294,44 @@ const ExpenseForm = () => {
     try {
       setSaving(true);
 
-      const primaryTag = getPrimaryTag(formData.baslik, formData.kategori);
+      if (isInstallment) {
+        // Handle Installment Submission (Future Expenses)
+        const payload = {
+          expenses: installments.map(inst => ({
+            title: inst.title,
+            amount: parseFloat(inst.amount),
+            date: inst.date,
+            currency: inst.currency,
+            status: 'PENDING',
+            type: 'INSTALLMENT'
+          }))
+        };
 
-      const payload = {
-        date: formData.date,
-        vendor_name: formData.kime,
-        amount: parseFloat(formData.amount),
-        currency: formData.currency,
-        description: formData.description,
-        primary_tag: primaryTag,
-        work_scope_level: formData.kaanHakedis ? 'PURE_IMALAT' : 'NON_IMALAT',
-        hak_edis_policy: formData.kaanHakedis ? 'ALWAYS_INCLUDED' : 'ALWAYS_EXCLUDED',
-      };
-
-      if (isEditing) {
-        await expensesAPI.update(id, payload);
+        await futureExpensesAPI.bulkCreate(payload);
+        navigate('/future-expenses'); // Navigate to Future Expenses list
       } else {
-        await expensesAPI.create(payload);
-      }
+        // Handle Regular Expense Submission
+        const primaryTag = getPrimaryTag(formData.baslik, formData.kategori);
 
-      navigate('/expenses');
+        const payload = {
+          date: formData.date,
+          vendor_name: formData.kime,
+          amount: parseFloat(formData.amount),
+          currency: formData.currency,
+          description: formData.description,
+          primary_tag: primaryTag,
+          work_scope_level: formData.kaanHakedis ? 'PURE_IMALAT' : 'NON_IMALAT',
+          hak_edis_policy: formData.kaanHakedis ? 'ALWAYS_INCLUDED' : 'ALWAYS_EXCLUDED',
+        };
+
+        if (isEditing) {
+          await expensesAPI.update(id, payload);
+        } else {
+          await expensesAPI.create(payload);
+        }
+
+        navigate('/expenses');
+      }
     } catch (error) {
       console.error('Failed to save expense:', error);
       setErrors({ submit: error.response?.data?.error || 'Kaydetme başarısız oldu' });
@@ -352,6 +417,89 @@ const ExpenseForm = () => {
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="card space-y-4">
+          {/* Installment Toggle & Configuration */}
+          {!isEditing && (
+            <div className="border border-blue-100 bg-blue-50/50 rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isInstallment}
+                      onChange={(e) => setIsInstallment(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                  <span className="font-semibold text-text">Taksitli Gider</span>
+                </div>
+              </div>
+
+              {isInstallment && (
+                <div className="space-y-4 animate-fadeIn mt-4 pt-4 border-t border-blue-100">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Taksit Sayısı</label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="120"
+                        value={installmentCount}
+                        onChange={(e) => setInstallmentCount(parseInt(e.target.value) || 1)}
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">İlk Taksit Tarihi</label>
+                      <input
+                        type="date"
+                        value={firstInstallmentDate}
+                        onChange={(e) => setFirstInstallmentDate(e.target.value)}
+                        className="input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="label">Taksit Planı</label>
+                    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-60 overflow-y-auto">
+                      {installments.map((inst, idx) => (
+                        <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center text-sm">
+                          <div className="col-span-1 text-text-secondary font-medium">#{idx + 1}</div>
+                          <div className="col-span-4">
+                            <input
+                              type="date"
+                              value={inst.date}
+                              onChange={(e) => handleInstallmentChange(idx, 'date', e.target.value)}
+                              className="input text-xs py-1"
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <input
+                              type="number"
+                              value={inst.amount}
+                              onChange={(e) => handleInstallmentChange(idx, 'amount', e.target.value)}
+                              className="input text-xs py-1"
+                              step="0.01"
+                            />
+                          </div>
+                          <div className="col-span-4 text-xs text-text-secondary truncate pl-2">
+                            {inst.title}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between text-sm px-2">
+                      <span>Toplam:</span>
+                      <span className={Math.abs(installments.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0) - parseFloat(formData.amount || 0)) > 0.1 ? "text-red-500 font-bold" : "text-green-600 font-bold"}>
+                        {installments.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)} {formData.currency}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* Tarih */}
           <div>
             <label className="label">Tarih *</label>
@@ -518,6 +666,8 @@ const ExpenseForm = () => {
             <span>{errors.submit}</span>
           </div>
         )}
+
+
 
         {/* Action Buttons */}
         <div className="flex items-center justify-between">

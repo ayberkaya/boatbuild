@@ -71,6 +71,8 @@ router.get('/', authenticate, requireAuthenticated, async (req, res) => {
     }
 });
 
+// ... existing imports ...
+
 /**
  * POST /api/future-expenses
  * Create a new future expense item
@@ -80,7 +82,8 @@ router.post('/', authenticate, requireAuthenticated, [
     body('amount').isFloat({ min: 0 }),
     body('date').isISO8601(),
     body('currency').optional().isIn(['TRY', 'USD', 'EUR']),
-    body('status').optional().isIn(['PENDING', 'PAID', 'CANCELLED'])
+    body('status').optional().isIn(['PENDING', 'PAID', 'CANCELLED']),
+    body('type').optional().isString()
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -88,13 +91,13 @@ router.post('/', authenticate, requireAuthenticated, [
             return res.status(400).json({ success: false, errors: errors.array() });
         }
 
-        const { title, amount, date, currency = 'EUR', status = 'PENDING' } = req.body;
+        const { title, amount, date, currency = 'EUR', status = 'PENDING', type = 'ESTIMATE' } = req.body;
 
         const result = await query(`
-            INSERT INTO future_expenses (title, amount, date, currency, status)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO future_expenses (title, amount, date, currency, status, type)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-        `, [title, amount, date, currency, status]);
+        `, [title, amount, date, currency, status, type]);
 
         res.status(201).json({
             success: true,
@@ -105,6 +108,56 @@ router.post('/', authenticate, requireAuthenticated, [
         res.status(500).json({
             success: false,
             error: 'Failed to create future expense'
+        });
+    }
+});
+
+/**
+ * POST /api/future-expenses/bulk
+ * Create multiple future expense items
+ */
+router.post('/bulk', authenticate, requireAuthenticated, [
+    body('expenses').isArray({ min: 1 }),
+    body('expenses.*.title').notEmpty().trim(),
+    body('expenses.*.amount').isFloat({ min: 0 }),
+    body('expenses.*.date').isISO8601(),
+    body('expenses.*.currency').optional().isIn(['TRY', 'USD', 'EUR']),
+    body('expenses.*.status').optional().isIn(['PENDING', 'PAID', 'CANCELLED']),
+    body('expenses.*.type').optional().isString()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ success: false, errors: errors.array() });
+        }
+
+        const { expenses } = req.body;
+        const results = [];
+
+        await transaction(async (client) => {
+            for (const expense of expenses) {
+                const { title, amount, date, currency = 'EUR', status = 'PENDING', type = 'ESTIMATE' } = expense;
+
+                const result = await client.query(`
+                    INSERT INTO future_expenses (title, amount, date, currency, status, type)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING *
+                `, [title, amount, date, currency, status, type]);
+
+                results.push(result.rows[0]);
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            data: results,
+            message: `${results.length} future expenses created successfully`
+        });
+    } catch (error) {
+        console.error('[Future Expenses] Bulk Create error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to create future expenses in bulk'
         });
     }
 });
