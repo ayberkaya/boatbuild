@@ -241,7 +241,7 @@ const Dashboard = () => {
           subtitle="Taksitli ödemeler"
           icon={Calendar}
           variant="warning"
-          onClick={() => navigate('/future-expenses')}
+          onClick={() => navigate('/future-expenses?tab=installments')}
         />
 
         {/* Card 3: Gelecekteki Gider Akışı (Total Projected) */}

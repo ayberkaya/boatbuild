@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Search, Filter, ArrowUpDown, Pencil, Trash2, X, Calendar, Check, AlertCircle } from 'lucide-react';
 import { futureExpensesAPI } from '../api/client';
 import { formatCurrency } from '../utils/currency';
@@ -8,14 +9,16 @@ const FutureExpenses = () => {
     const [loading, setLoading] = useState(true);
     const [totals, setTotals] = useState({ totalAmount: 0 });
 
-    const [activeTab, setActiveTab] = useState('general'); // 'general' or 'installments'
+    const [searchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'general'); // 'general' or 'installments'
 
     // Filters & Sorting
     const [filters, setFilters] = useState({
         search: '',
         sort_by: 'date',
         sort_order: 'ASC',
-        exclude_type: 'INSTALLMENT' // Default to hiding installments in 'general' view
+        type: (searchParams.get('tab') || 'general') === 'installments' ? 'INSTALLMENT' : undefined,
+        exclude_type: (searchParams.get('tab') || 'general') === 'general' ? 'INSTALLMENT' : undefined
     });
 
     // Modal State
@@ -78,6 +81,13 @@ const FutureExpenses = () => {
             }));
         }
     };
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab && tab !== activeTab) {
+            handleTabChange(tab);
+        }
+    }, [searchParams]);
 
     const openModal = (expense = null) => {
         if (expense) {
